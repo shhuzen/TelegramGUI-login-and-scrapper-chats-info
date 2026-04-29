@@ -152,6 +152,19 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Telegram session files
+*.session
+*.session-journal
+
+# App runtime data
+config.json
+backups/
+exports/
+
+# Build artifacts from manual dependency installation
+pyaes-*/
+pyaes-*.tar.gz
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
