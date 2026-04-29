@@ -43,13 +43,15 @@ def save_config(config: dict):
 
 def _startup():
     cfg = load_config()
-    if cfg.get("api_id") and cfg.get("api_hash"):
-        try:
-            ok = tg.try_restore_session(int(cfg["api_id"]), cfg["api_hash"])
-            if ok:
-                print("✓ Restored Telegram session")
-        except Exception as e:
-            print(f"Could not restore session: {e}")
+    try:
+        ok = tg.try_restore_session(
+            api_id=cfg.get("api_id") or None,
+            api_hash=cfg.get("api_hash") or None,
+        )
+        if ok:
+            print("✓ Restored Telegram session")
+    except Exception as e:
+        print(f"Could not restore session: {e}")
     scheduler.start(cfg)
     atexit.register(scheduler.shutdown)
 
@@ -76,6 +78,23 @@ def auth_status():
     logged_in = tg.is_logged_in()
     me = tg.get_me() if logged_in else None
     return jsonify({"logged_in": logged_in, "user": me})
+
+
+@app.route("/api/auth/default-tdata-path")
+def default_tdata_path():
+    from tg_client import DEFAULT_TDATA_PATH
+    return jsonify({"path": DEFAULT_TDATA_PATH, "exists": os.path.isdir(DEFAULT_TDATA_PATH)})
+
+
+@app.route("/api/auth/from-tdata", methods=["POST"])
+def login_from_tdata():
+    data = request.json or {}
+    path = (data.get("tdata_path") or "").strip()
+    if not path:
+        from tg_client import DEFAULT_TDATA_PATH
+        path = DEFAULT_TDATA_PATH
+    result = tg.login_from_tdata(path)
+    return jsonify(result)
 
 
 @app.route("/api/auth/send-code", methods=["POST"])

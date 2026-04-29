@@ -12,11 +12,14 @@ from telethon.errors import (
     FloodWaitError,
 )
 from telethon.tl.types import Channel, Chat, User
-from telethon.tl.functions.channels import GetFullChannelRequest
-from telethon.tl.functions.messages import ExportChatInviteRequest
-
 
 SESSION_FILE = "telegram_session"
+TDATA_SESSION_FILE = "tdata_session"
+
+# Default tdata path on Windows
+DEFAULT_TDATA_PATH = os.path.join(
+    os.environ.get("APPDATA", ""), "Telegram Desktop", "tdata"
+)
 
 
 class TelegramClientManager:
@@ -58,18 +61,61 @@ class TelegramClientManager:
         except Exception:
             return False
 
-    def try_restore_session(self, api_id: int, api_hash: str) -> bool:
-        """Reconnect using an existing session file."""
-        if not os.path.exists(f"{SESSION_FILE}.session"):
-            return False
+    def try_restore_session(self, api_id: int | None = None, api_hash: str | None = None) -> bool:
+        """Reconnect using an existing session file (tdata-derived or MTProto)."""
+        # Try tdata-derived session first (no api_id/hash needed)
+        if os.path.exists(f"{TDATA_SESSION_FILE}.session"):
+            try:
+                from opentele.api import API
+                creds = API.TelegramDesktop
+                self.client = TelegramClient(
+                    TDATA_SESSION_FILE, creds.api_id, creds.api_hash, loop=self.loop
+                )
+                self._run(self.client.connect())
+                if self.is_logged_in():
+                    return True
+            except Exception:
+                pass
+
+        # Fall back to MTProto session
+        if api_id and api_hash and os.path.exists(f"{SESSION_FILE}.session"):
+            try:
+                self.api_id = int(api_id)
+                self.api_hash = api_hash
+                self.client = TelegramClient(SESSION_FILE, self.api_id, self.api_hash, loop=self.loop)
+                self._run(self.client.connect())
+                return self.is_logged_in()
+            except Exception:
+                pass
+
+        return False
+
+    def login_from_tdata(self, tdata_path: str) -> dict:
+        """Create a session from Telegram Desktop tdata folder — no API keys needed."""
+        if not os.path.isdir(tdata_path):
+            return {"success": False, "error": f"Папка не найдена: {tdata_path}"}
+
+        async def _convert():
+            from opentele.td import TDesktop
+            from opentele.api import API, CreateNewSession
+
+            tdesk = TDesktop(tdata_path)
+            if not tdesk.isLoaded():
+                return {"success": False, "error": "Не удалось прочитать tdata. Убедитесь что Telegram Desktop закрыт."}
+
+            client = await tdesk.ToTelethon(
+                session=TDATA_SESSION_FILE,
+                flag=CreateNewSession,
+                api=API.TelegramDesktop,
+            )
+            await client.connect()
+            self.client = client
+            return {"success": True}
+
         try:
-            self.api_id = api_id
-            self.api_hash = api_hash
-            self.client = TelegramClient(SESSION_FILE, api_id, api_hash, loop=self.loop)
-            self._run(self.client.connect())
-            return self.is_logged_in()
-        except Exception:
-            return False
+            return self._run(_convert(), timeout=60)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def send_code(self, phone: str, api_id: int, api_hash: str) -> dict:
         self.phone = phone
