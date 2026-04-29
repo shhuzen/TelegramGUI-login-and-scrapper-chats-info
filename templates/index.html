@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Telegram Manager</title>
+  <style>
+    /* ===== Reset & Variables ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #17212b;
+      --sidebar:   #232e3c;
+      --card:      #1e2c3a;
+      --border:    #2d3f51;
+      --accent:    #5288c1;
+      --accent-h:  #6aa3e0;
+      --danger:    #e05454;
+      --success:   #4dca6f;
+      --warn:      #e0a44d;
+      --text:      #e8f0f8;
+      --subtext:   #7d99b5;
+      --input-bg:  #1c2a38;
+      --radius:    10px;
+      --shadow:    0 4px 24px rgba(0,0,0,.4);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ===== Login screen ===== */
+    #login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .login-card {
+      background: var(--sidebar);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: var(--shadow);
+    }
+
+    .login-card h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      text-align: center;
+    }
+
+    .login-card .subtitle {
+      color: var(--subtext);
+      text-align: center;
+      font-size: 13px;
+      margin-bottom: 28px;
+    }
+
+    .step { display: none; }
+    .step.active { display: block; }
+
+    /* ===== Form elements ===== */
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--subtext);
+      margin-bottom: 5px;
+      margin-top: 16px;
+    }
+
+    label:first-child { margin-top: 0; }
+
+    input[type="text"],
+    input[type="tel"],
+    input[type="password"],
+    input[type="number"],
+    input[type="time"],
+    select {
+      width: 100%;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      padding: 10px 13px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--accent);
+    }
+
+    input::placeholder { color: var(--subtext); }
+
+    .hint {
+      font-size: 12px;
+      color: var(--subtext);
+      margin-top: 4px;
+    }
+
+    .hint a { color: var(--accent); text-decoration: none; }
+    .hint a:hover { text-decoration: underline; }
+
+    /* ===== Buttons ===== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background .15s, opacity .15s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+
+    .btn-full { width: 100%; margin-top: 20px; }
+
+    .btn-sm { padding: 6px 13px; font-size: 13px; }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-ghost:hover { background: var(--border); }
+
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover:not(:disabled) { opacity: .85; }
+
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-success:hover:not(:disabled) { opacity: .85; }
+
+    /* ===== Alert ===== */
+    .alert {
+      border-radius: 7px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-top: 14px;
+      display: none;
+    }
+    .alert.show { display: block; }
+    .alert-error { background: rgba(224,84,84,.15); border: 1px solid var(--danger); color: #f08080; }
+    .alert-success { background: rgba(77,202,111,.15); border: 1px solid var(--success); color: #7de89a; }
+    .alert-warn { background: rgba(224,164,77,.15); border: 1px solid var(--warn); color: #e0c87a; }
+
+    /* ===== App shell ===== */
+    #app { display: none; height: 100vh; overflow: hidden; flex-direction: column; }
+    #app.visible { display: flex; }
+
+    /* ===== Header ===== */
+    .app-header {
+      background: var(--sidebar);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+
+    .app-header .logo {
+      font-weight: 700;
+      font-size: 17px;
+      color: var(--accent);
+      margin-right: auto;
+    }
+
+    .user-badge {
+      font-size: 13px;
+      color: var(--subtext);
+    }
+
+    /* ===== Nav tabs ===== */
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 24px;
+      background: var(--sidebar);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .nav-tab {
+      padding: 12px 18px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--subtext);
+      border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+      user-select: none;
+    }
+
+    .nav-tab:hover { color: var(--text); }
+    .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ===== Tab content ===== */
+    .tab-content { flex: 1; overflow-y: auto; padding: 28px 24px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ===== Section title ===== */
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+
+    /* ===== Chat list ===== */
+    .chat-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .search-input {
+      flex: 1;
+      min-width: 200px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 8px 13px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--subtext); }
+
+    .filter-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--subtext);
+      cursor: pointer;
+      font-size: 13px;
+      transition: all .15s;
+    }
+    .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .chat-table-wrapper { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+    }
+
+    th {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--subtext);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 1;
+    }
+
+    tr { border-bottom: 1px solid rgba(45,63,81,.5); }
+    tr:last-child { border-bottom: none; }
+    tr:hover td { background: rgba(82,136,193,.06); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .03em;
+    }
+
+    .badge-channel { background: rgba(82,136,193,.2); color: var(--accent); }
+    .badge-group   { background: rgba(77,202,111,.18); color: var(--success); }
+    .badge-archive { background: rgba(125,153,181,.15); color: var(--subtext); }
+
+    .chat-link { color: var(--accent); text-decoration: none; font-size: 13px; }
+    .chat-link:hover { text-decoration: underline; }
+
+    .export-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--subtext);
+    }
+
+    .progress-bar-wrap {
+      flex: 1;
+      background: var(--border);
+      border-radius: 4px;
+      height: 5px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      transition: width .3s;
+    }
+
+    /* ===== Settings form ===== */
+    .settings-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      max-width: 560px;
+      margin-bottom: 20px;
+    }
+
+    .settings-card h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+    .radio-group { display: flex; gap: 12px; margin-top: 4px; }
+
+    .radio-option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .radio-option input[type="radio"] { accent-color: var(--accent); }
+
+    /* ===== Backup status ===== */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .status-row:last-child { border-bottom: none; }
+
+    .status-label { color: var(--subtext); width: 160px; flex-shrink: 0; }
+
+    /* ===== Loader ===== */
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2.5px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--subtext);
+      padding: 40px 0;
+      justify-content: center;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--subtext);
+    }
+
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+    /* ===== Scrollbar ===== */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--subtext); }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 640px) {
+      .row-2 { grid-template-columns: 1fr; }
+      .chat-controls { flex-direction: column; align-items: stretch; }
+      .app-header { padding: 0 14px; }
+      .tab-content { padding: 18px 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============================= LOGIN ============================= -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Telegram Manager</h1>
+    <p class="subtitle">Войдите через MTProto для доступа к чатам</p>
+
+    <!-- Step 1: credentials -->
+    <div class="step active" id="step-credentials">
+      <label>API ID <span style="color:var(--danger)">*</span></label>
+      <input type="text" id="inp-api-id" placeholder="12345678" />
+
+      <label>API Hash <span style="color:var(--danger)">*</span></label>
+      <input type="text" id="inp-api-hash" placeholder="abcdef1234567890abcdef1234567890" />
+
+      <label>Номер телефона <span style="color:var(--danger)">*</span></label>
+      <input type="tel" id="inp-phone" placeholder="+79001234567" />
+      <p class="hint">API ключи можно получить на <a href="https://my.telegram.org" target="_blank">my.telegram.org</a></p>
+
+      <div class="alert alert-error" id="err-credentials"></div>
+      <button class="btn btn-primary btn-full" id="btn-send-code" onclick="sendCode()">Получить код</button>
+    </div>
+
+    <!-- Step 2: code -->
+    <div class="step" id="step-code">
+      <p style="color:var(--subtext);font-size:14px;margin-bottom:16px;">
+        Код отправлен в Telegram на номер <strong id="display-phone"></strong>
+      </p>
+      <label>Код из Telegram</label>
+      <input type="text" id="inp-code" placeholder="12345" maxlength="10"
+             onkeydown="if(event.key==='Enter') verifyCode()" />
+      <div class="alert alert-error" id="err-code"></div>
+      <button class="btn btn-primary btn-full" id="btn-verify-code" onclick="verifyCode()">Войти</button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="goStep('credentials')">← Назад</button>
+    </div>
+
+    <!-- Step 3: 2FA -->
+    <div class="step" id="step-2fa">
+      <p style="color:var(--subtext);font-size:14px;margin-bottom:16px;">
+        На аккаунте включена двухфакторная аутентификация
+      </p>
+      <label>Пароль 2FA</label>
+      <input type="password" id="inp-2fa" placeholder="••••••••"
+             onkeydown="if(event.key==='Enter') verify2fa()" />
+      <div class="alert alert-error" id="err-2fa"></div>
+      <button class="btn btn-primary btn-full" id="btn-2fa" onclick="verify2fa()">Подтвердить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== APP ============================= -->
+<div id="app">
+  <!-- Header -->
+  <div class="app-header">
+    <span class="logo">✈ Telegram Manager</span>
+    <span class="user-badge" id="user-badge"></span>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()">Выйти</button>
+  </div>
+
+  <!-- Nav -->
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchTab('chats', this)">Чаты</div>
+    <div class="nav-tab" onclick="switchTab('backup', this)">Резервная копия</div>
+    <div class="nav-tab" onclick="switchTab('settings', this)">Настройки</div>
+  </div>
+
+  <!-- Content -->
+  <div class="tab-content">
+
+    <!-- ===== CHATS TAB ===== -->
+    <div class="tab-pane active" id="tab-chats">
+      <div class="chat-controls">
+        <input class="search-input" type="text" id="chat-search"
+               placeholder="Поиск по названию..." oninput="filterChats()" />
+        <button class="filter-btn active" id="filter-all" onclick="setFilter('all', this)">Все</button>
+        <button class="filter-btn" id="filter-groups" onclick="setFilter('group', this)">Группы</button>
+        <button class="filter-btn" id="filter-channels" onclick="setFilter('channel', this)">Каналы</button>
+        <button class="filter-btn" id="filter-archived" onclick="setFilter('archived', this)">Архив</button>
+        <button class="btn btn-primary btn-sm" onclick="loadChats()">↻ Обновить</button>
+      </div>
+
+      <div id="chats-container">
+        <div class="loading-row"><div class="spinner"></div> Загрузка чатов…</div>
+      </div>
+    </div>
+
+    <!-- ===== BACKUP TAB ===== -->
+    <div class="tab-pane" id="tab-backup">
+      <div class="section-title">Резервная копия чатов</div>
+
+      <div class="settings-card">
+        <h3>Статус</h3>
+        <div id="backup-status-rows">
+          <div class="status-row"><span class="status-label">Последний запуск</span><span id="bs-last-run">—</span></div>
+          <div class="status-row"><span class="status-label">Следующий запуск</span><span id="bs-next-run">—</span></div>
+          <div class="status-row"><span class="status-label">Последний файл</span><span id="bs-last-file">—</span></div>
+          <div class="status-row"><span class="status-label">Кол-во чатов</span><span id="bs-last-count">—</span></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;">
+          <button class="btn btn-primary btn-sm" id="btn-backup-now" onclick="backupNow()">Создать сейчас</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadBackupStatus()">↻ Обновить статус</button>
+        </div>
+        <div class="alert" id="backup-alert" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
+    <!-- ===== SETTINGS TAB ===== -->
+    <div class="tab-pane" id="tab-settings">
+      <div class="section-title">Настройки</div>
+
+      <div class="settings-card">
+        <h3>Папки сохранения</h3>
+        <label>Папка для бэкапа списка чатов</label>
+        <input type="text" id="s-save-folder" placeholder="backups" />
+        <label>Папка для экспорта истории</label>
+        <input type="text" id="s-export-folder" placeholder="exports" />
+      </div>
+
+      <div class="settings-card">
+        <h3>Расписание автоматического бэкапа</h3>
+
+        <label>Режим обновления</label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="update-mode" value="interval" id="mode-interval"
+                   onchange="toggleScheduleMode()" checked />
+            Каждые N часов
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="update-mode" value="daily" id="mode-daily"
+                   onchange="toggleScheduleMode()" />
+            Каждый день в заданное время
+          </label>
+        </div>
+
+        <div id="mode-interval-row" style="margin-top:14px;">
+          <label>Интервал (часов)</label>
+          <input type="number" id="s-interval-hours" min="1" max="168" placeholder="24" />
+        </div>
+
+        <div id="mode-daily-row" style="margin-top:14px;display:none;">
+          <label>Время запуска (UTC)</label>
+          <input type="time" id="s-daily-time" value="03:00" />
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()">Сохранить настройки</button>
+      <div class="alert" id="settings-alert" style="margin-top:12px;max-width:560px;"></div>
+    </div>
+
+  </div><!-- /tab-content -->
+</div><!-- /app -->
+
+<script>
+// ================================================================ //
+//  State
+// ================================================================ //
+let allChats = [];
+let activeFilter = 'all';
+let exportPollers = {};  // chat_id -> interval id
+
+// ================================================================ //
+//  Utils
+// ================================================================ //
+function api(url, opts = {}) {
+  return fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  }).then(r => r.json());
+}
+
+function setLoading(btnId, loading, text) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  if (text) btn.textContent = loading ? '…' : text;
+}
+
+function showAlert(id, msg, type = 'error') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = `alert alert-${type} show`;
+  el.textContent = msg;
+}
+
+function hideAlert(id) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'alert';
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('ru-RU');
+}
+
+// ================================================================ //
+//  Login flow
+// ================================================================ //
+function goStep(name) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-' + name).classList.add('active');
+}
+
+async function sendCode() {
+  hideAlert('err-credentials');
+  const apiId   = document.getElementById('inp-api-id').value.trim();
+  const apiHash = document.getElementById('inp-api-hash').value.trim();
+  const phone   = document.getElementById('inp-phone').value.trim();
+
+  if (!apiId || !apiHash || !phone) {
+    showAlert('err-credentials', 'Заполните все поля');
+    return;
+  }
+
+  setLoading('btn-send-code', true, 'Получить код');
+  const res = await api('/api/auth/send-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone, api_id: apiId, api_hash: apiHash }),
+  });
+  setLoading('btn-send-code', false, 'Получить код');
+
+  if (res.success) {
+    document.getElementById('display-phone').textContent = phone;
+    goStep('code');
+  } else {
+    showAlert('err-credentials', res.error || 'Ошибка отправки кода');
+  }
+}
+
+async function verifyCode() {
+  hideAlert('err-code');
+  const code = document.getElementById('inp-code').value.trim();
+  if (!code) { showAlert('err-code', 'Введите код'); return; }
+
+  setLoading('btn-verify-code', true, 'Войти');
+  const res = await api('/api/auth/verify-code', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+  setLoading('btn-verify-code', false, 'Войти');
+
+  if (res.success) {
+    onLoggedIn();
+  } else if (res.need_2fa) {
+    goStep('2fa');
+  } else {
+    showAlert('err-code', res.error || 'Неверный код');
+  }
+}
+
+async function verify2fa() {
+  hideAlert('err-2fa');
+  const password = document.getElementById('inp-2fa').value;
+  if (!password) { showAlert('err-2fa', 'Введите пароль'); return; }
+
+  setLoading('btn-2fa', true, 'Подтвердить');
+  const res = await api('/api/auth/verify-2fa', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
+  setLoading('btn-2fa', false, 'Подтвердить');
+
+  if (res.success) {
+    onLoggedIn();
+  } else {
+    showAlert('err-2fa', res.error || 'Неверный пароль');
+  }
+}
+
+async function doLogout() {
+  if (!confirm('Выйти из Telegram?')) return;
+  await api('/api/auth/logout', { method: 'POST' });
+  location.reload();
+}
+
+// ================================================================ //
+//  App init
+// ================================================================ //
+async function init() {
+  const res = await api('/api/auth/status');
+  if (res.logged_in) {
+    onLoggedIn(res.user);
+  }
+}
+
+function onLoggedIn(user) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').classList.add('visible');
+
+  if (user) {
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
+    const badge = user.username ? `@${user.username}` : name;
+    document.getElementById('user-badge').textContent = badge;
+  }
+
+  loadChats();
+  loadBackupStatus();
+  loadSettings();
+}
+
+// ================================================================ //
+//  Tab switching
+// ================================================================ //
+function switchTab(name, el) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+
+  if (name === 'backup') loadBackupStatus();
+  if (name === 'settings') loadSettings();
+}
+
+// ================================================================ //
+//  Chats
+// ================================================================ //
+async function loadChats() {
+  document.getElementById('chats-container').innerHTML =
+    '<div class="loading-row"><div class="spinner"></div> Загрузка чатов…</div>';
+
+  const res = await api('/api/chats');
+  if (res.error) {
+    document.getElementById('chats-container').innerHTML =
+      `<div class="alert alert-error show">${res.error}</div>`;
+    return;
+  }
+
+  allChats = res.chats || [];
+  renderChats();
+}
+
+function setFilter(f, el) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderChats();
+}
+
+function filterChats() {
+  renderChats();
+}
+
+function renderChats() {
+  const query = document.getElementById('chat-search').value.toLowerCase();
+  let chats = allChats;
+
+  if (activeFilter === 'archived') {
+    chats = chats.filter(c => c.archived);
+  } else if (activeFilter === 'group') {
+    chats = chats.filter(c => c.type === 'group' && !c.archived);
+  } else if (activeFilter === 'channel') {
+    chats = chats.filter(c => c.type === 'channel' && !c.archived);
+  }
+
+  if (query) {
+    chats = chats.filter(c => c.title.toLowerCase().includes(query));
+  }
+
+  if (!chats.length) {
+    document.getElementById('chats-container').innerHTML =
+      '<div class="empty-state"><div class="icon">📭</div><p>Чаты не найдены</p></div>';
+    return;
+  }
+
+  const rows = chats.map(c => {
+    const badgeClass = c.archived ? 'badge-archive' : (c.type === 'channel' ? 'badge-channel' : 'badge-group');
+    const badgeLabel = c.archived ? 'архив' : (c.type === 'channel' ? 'канал' : 'группа');
+    const link = c.link
+      ? `<a href="${c.link}" target="_blank" class="chat-link">${c.link}</a>`
+      : '<span style="color:var(--subtext);font-size:12px">приватный</span>';
+
+    const exportId = `export-${c.id}`;
+    const dlId = `dl-${c.id}`;
+
+    return `<tr>
+      <td><strong>${escHtml(c.title)}</strong></td>
+      <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+      <td>${link}</td>
+      <td>${c.members_count != null ? c.members_count.toLocaleString('ru-RU') : '—'}</td>
+      <td>
+        <div id="${exportId}">
+          <button class="btn btn-ghost btn-sm" onclick="startExport(${c.id}, '${escHtml(c.title)}', this)">
+            Экспорт
+          </button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('chats-container').innerHTML = `
+    <div class="chat-table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th>Тип</th>
+            <th>Ссылка</th>
+            <th>Участники</th>
+            <th>Действие</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ================================================================ //
+//  Export
+// ================================================================ //
+async function startExport(chatId, title, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Запуск…';
+
+  const res = await api(`/api/export/${chatId}/start`, {
+    method: 'POST',
+    body: JSON.stringify({ limit: 0 }),
+  });
+
+  if (!res.success) {
+    btn.disabled = false;
+    btn.textContent = 'Экспорт';
+    alert(res.error || 'Ошибка запуска экспорта');
+    return;
+  }
+
+  const container = document.getElementById(`export-${chatId}`);
+  container.innerHTML = `
+    <div class="export-progress">
+      <div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="pb-${chatId}" style="width:0%"></div>
+      </div>
+      <span id="pct-${chatId}">0%</span>
+    </div>`;
+
+  pollExport(chatId);
+}
+
+function pollExport(chatId) {
+  if (exportPollers[chatId]) clearInterval(exportPollers[chatId]);
+
+  exportPollers[chatId] = setInterval(async () => {
+    const s = await api(`/api/export/${chatId}/status`);
+    const pct = s.total > 0 ? Math.round((s.progress / s.total) * 100) : 0;
+
+    const pb  = document.getElementById(`pb-${chatId}`);
+    const pct_el = document.getElementById(`pct-${chatId}`);
+    if (pb) pb.style.width = pct + '%';
+    if (pct_el) pct_el.textContent = `${s.progress} / ${s.total}`;
+
+    if (s.status === 'done') {
+      clearInterval(exportPollers[chatId]);
+      const container = document.getElementById(`export-${chatId}`);
+      if (container) {
+        container.innerHTML = `
+          <a class="btn btn-success btn-sm" href="/api/export/${chatId}/download">
+            ↓ Скачать
+          </a>
+          <button class="btn btn-ghost btn-sm" style="margin-left:6px"
+                  onclick="resetExport(${chatId})">Повтор</button>`;
+      }
+    } else if (s.status === 'error') {
+      clearInterval(exportPollers[chatId]);
+      const container = document.getElementById(`export-${chatId}`);
+      if (container) {
+        container.innerHTML = `
+          <span style="color:var(--danger);font-size:12px">${s.error || 'Ошибка'}</span>
+          <button class="btn btn-ghost btn-sm" style="margin-left:6px"
+                  onclick="resetExport(${chatId})">Повтор</button>`;
+      }
+    }
+  }, 1500);
+}
+
+function resetExport(chatId) {
+  const container = document.getElementById(`export-${chatId}`);
+  if (container) {
+    container.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="startExport(${chatId}, '', this)">Экспорт</button>`;
+  }
+}
+
+// ================================================================ //
+//  Backup
+// ================================================================ //
+async function loadBackupStatus() {
+  const s = await api('/api/backup/status');
+  document.getElementById('bs-last-run').textContent  = formatDate(s.last_run);
+  document.getElementById('bs-next-run').textContent  = formatDate(s.next_run);
+  document.getElementById('bs-last-file').textContent =
+    s.last_result?.file || '—';
+  document.getElementById('bs-last-count').textContent =
+    s.last_result?.count != null ? s.last_result.count : '—';
+}
+
+async function backupNow() {
+  hideAlert('backup-alert');
+  setLoading('btn-backup-now', true, 'Создать сейчас');
+  const res = await api('/api/backup/now', { method: 'POST' });
+  setLoading('btn-backup-now', false, 'Создать сейчас');
+
+  if (res.success) {
+    showAlert('backup-alert',
+      `Сохранено ${res.count} чатов → ${res.file}`, 'success');
+    loadBackupStatus();
+  } else {
+    showAlert('backup-alert', res.error || 'Ошибка', 'error');
+  }
+}
+
+// ================================================================ //
+//  Settings
+// ================================================================ //
+async function loadSettings() {
+  const cfg = await api('/api/settings');
+
+  document.getElementById('s-save-folder').value    = cfg.save_folder || 'backups';
+  document.getElementById('s-export-folder').value  = cfg.export_folder || 'exports';
+  document.getElementById('s-interval-hours').value = cfg.update_interval_hours || 24;
+  document.getElementById('s-daily-time').value     = cfg.update_daily_time || '03:00';
+
+  const mode = cfg.update_mode || 'interval';
+  document.getElementById('mode-interval').checked = mode === 'interval';
+  document.getElementById('mode-daily').checked    = mode === 'daily';
+  toggleScheduleMode();
+}
+
+function toggleScheduleMode() {
+  const isDail = document.getElementById('mode-daily').checked;
+  document.getElementById('mode-interval-row').style.display = isDail ? 'none'  : 'block';
+  document.getElementById('mode-daily-row').style.display    = isDail ? 'block' : 'none';
+}
+
+async function saveSettings() {
+  hideAlert('settings-alert');
+  const mode = document.querySelector('input[name="update-mode"]:checked').value;
+
+  const body = {
+    save_folder:            document.getElementById('s-save-folder').value.trim() || 'backups',
+    export_folder:          document.getElementById('s-export-folder').value.trim() || 'exports',
+    update_mode:            mode,
+    update_interval_hours:  parseInt(document.getElementById('s-interval-hours').value) || 24,
+    update_daily_time:      document.getElementById('s-daily-time').value || '03:00',
+  };
+
+  setLoading('btn-save-settings', true, 'Сохранить настройки');
+  const res = await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
+  setLoading('btn-save-settings', false, 'Сохранить настройки');
+
+  if (res.success) {
+    showAlert('settings-alert', 'Настройки сохранены', 'success');
+  } else {
+    showAlert('settings-alert', res.error || 'Ошибка', 'error');
+  }
+}
+
+// ================================================================ //
+//  Boot
+// ================================================================ //
+init();
+</script>
+</body>
+</html>

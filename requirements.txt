@@ -1,0 +1,4 @@
+telethon>=1.36
+flask>=3.0
+apscheduler>=3.10
+python-dotenv>=1.0
