@@ -207,12 +207,13 @@ _APP_NAME = "TelegramManager"
 
 
 def _autostart_entry() -> str:
-    """Command stored in registry: pythonw main.py inside the project folder."""
+    """Command stored in registry — uses the same Python that's running now (venv-aware)."""
+    # sys.executable already points to venv\Scripts\python.exe when inside venv
     pythonw = Path(sys.executable).parent / "pythonw.exe"
-    if not pythonw.exists():
-        pythonw = sys.executable          # fallback to python.exe
+    python  = Path(sys.executable)
+    exe = pythonw if pythonw.exists() else python   # pythonw.exe = no console window
     script = Path(__file__).resolve()
-    return f'"{pythonw}" "{script}"'
+    return f'"{exe}" "{script}"'
 
 
 def _get_autostart() -> bool:
