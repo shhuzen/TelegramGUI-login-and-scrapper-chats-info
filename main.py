@@ -3,7 +3,7 @@ import os
 import atexit
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_file, abort
+from flask import Flask, jsonify, render_template, request, send_file
 
 from tg_client import TelegramClientManager
 from scheduler_service import BackupScheduler
@@ -14,8 +14,6 @@ scheduler = BackupScheduler(tg)
 
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "api_id": "",
-    "api_hash": "",
     "save_folder": "backups",
     "export_folder": "exports",
     "update_mode": "interval",
@@ -27,8 +25,7 @@ DEFAULT_CONFIG = {
 def load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-        return {**DEFAULT_CONFIG, **data}
+            return {**DEFAULT_CONFIG, **json.load(f)}
     return dict(DEFAULT_CONFIG)
 
 
@@ -38,17 +35,13 @@ def save_config(config: dict):
 
 
 # ------------------------------------------------------------------ #
-#  Startup — try to reconnect with saved session
+#  Startup
 # ------------------------------------------------------------------ #
 
 def _startup():
     cfg = load_config()
     try:
-        ok = tg.try_restore_session(
-            api_id=cfg.get("api_id") or None,
-            api_hash=cfg.get("api_hash") or None,
-        )
-        if ok:
+        if tg.try_restore_session():
             print("✓ Restored Telegram session")
     except Exception as e:
         print(f"Could not restore session: {e}")
@@ -80,41 +73,13 @@ def auth_status():
     return jsonify({"logged_in": logged_in, "user": me})
 
 
-@app.route("/api/auth/default-tdata-path")
-def default_tdata_path():
-    from tg_client import DEFAULT_TDATA_PATH
-    return jsonify({"path": DEFAULT_TDATA_PATH, "exists": os.path.isdir(DEFAULT_TDATA_PATH)})
-
-
-@app.route("/api/auth/from-tdata", methods=["POST"])
-def login_from_tdata():
-    data = request.json or {}
-    path = (data.get("tdata_path") or "").strip()
-    if not path:
-        from tg_client import DEFAULT_TDATA_PATH
-        path = DEFAULT_TDATA_PATH
-    result = tg.login_from_tdata(path)
-    return jsonify(result)
-
-
 @app.route("/api/auth/send-code", methods=["POST"])
 def send_code():
     data = request.json or {}
     phone = (data.get("phone") or "").strip()
-    api_id = (data.get("api_id") or "").strip()
-    api_hash = (data.get("api_hash") or "").strip()
-
-    if not phone or not api_id or not api_hash:
-        return jsonify({"success": False, "error": "Заполните все поля"}), 400
-
-    # Save credentials to config
-    cfg = load_config()
-    cfg["api_id"] = api_id
-    cfg["api_hash"] = api_hash
-    save_config(cfg)
-
-    result = tg.send_code(phone, api_id, api_hash)
-    return jsonify(result)
+    if not phone:
+        return jsonify({"success": False, "error": "Введите номер телефона"}), 400
+    return jsonify(tg.send_code(phone))
 
 
 @app.route("/api/auth/verify-code", methods=["POST"])
@@ -166,10 +131,9 @@ def start_export(chat_id: int):
     if not tg.is_logged_in():
         return jsonify({"error": "Не авторизован"}), 401
     cfg = load_config()
-    folder = cfg.get("export_folder", "exports")
     data = request.json or {}
     limit = int(data.get("limit", 0))
-    return jsonify(tg.start_export(chat_id, folder, limit))
+    return jsonify(tg.start_export(chat_id, cfg.get("export_folder", "exports"), limit))
 
 
 @app.route("/api/export/<int:chat_id>/status")
@@ -200,24 +164,14 @@ def download_export(chat_id: int):
 
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
-    cfg = load_config()
-    # Don't expose api_hash in full; mask it
-    safe = dict(cfg)
-    if safe.get("api_hash"):
-        safe["api_hash_masked"] = safe["api_hash"][:4] + "****"
-    return jsonify(safe)
+    return jsonify(load_config())
 
 
 @app.route("/api/settings", methods=["POST"])
 def update_settings():
     data = request.json or {}
     cfg = load_config()
-    allowed = {
-        "save_folder", "export_folder",
-        "update_mode", "update_interval_hours", "update_daily_time",
-        "api_id", "api_hash",
-    }
-    for key in allowed:
+    for key in {"save_folder", "export_folder", "update_mode", "update_interval_hours", "update_daily_time"}:
         if key in data:
             cfg[key] = data[key]
     save_config(cfg)

@@ -461,87 +461,42 @@
 <!-- ============================= LOGIN ============================= -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>Telegram Manager</h1>
-    <p class="subtitle">Выберите способ входа</p>
+    <h1>✈ Telegram Manager</h1>
+    <p class="subtitle">Войдите через номер телефона</p>
 
-    <!-- ── Method picker ── -->
-    <div class="step active" id="step-pick">
-      <!-- tdata option -->
-      <div class="method-card" id="mc-tdata" onclick="pickMethod('tdata')">
-        <div class="method-icon">🖥️</div>
-        <div>
-          <div class="method-title">Через Telegram Desktop</div>
-          <div class="method-desc">Использует существующую сессию — без кодов и API ключей</div>
-        </div>
-        <div class="method-check" id="chk-tdata">✓</div>
-      </div>
-
-      <!-- API option -->
-      <div class="method-card" id="mc-api" onclick="pickMethod('api')">
-        <div class="method-icon">🔑</div>
-        <div>
-          <div class="method-title">Через API ключи</div>
-          <div class="method-desc">Ввод API ID + Hash + номер телефона</div>
-        </div>
-        <div class="method-check" id="chk-api"></div>
-      </div>
-
-      <div class="alert alert-error" id="err-pick"></div>
-      <button class="btn btn-primary btn-full" id="btn-next" onclick="goFromPick()">Продолжить →</button>
-    </div>
-
-    <!-- ── Step: tdata login ── -->
-    <div class="step" id="step-tdata">
-      <p style="color:var(--subtext);font-size:13px;margin-bottom:14px;">
-        Убедитесь что <strong>Telegram Desktop закрыт</strong>, затем укажите путь к папке tdata.
-      </p>
-      <label>Путь к папке tdata</label>
-      <input type="text" id="inp-tdata" placeholder="C:\Users\...\AppData\Roaming\Telegram Desktop\tdata" />
-      <p class="hint" id="tdata-hint">Обнаружен стандартный путь — можно нажать «Войти» сразу</p>
-
-      <div class="alert alert-error" id="err-tdata"></div>
-      <button class="btn btn-primary btn-full" id="btn-tdata-login" onclick="loginFromTdata()">Войти</button>
-      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="goStep('pick')">← Назад</button>
-    </div>
-
-    <!-- ── Step: API credentials ── -->
-    <div class="step" id="step-credentials">
-      <label>API ID</label>
-      <input type="text" id="inp-api-id" placeholder="12345678" />
-
-      <label>API Hash</label>
-      <input type="text" id="inp-api-hash" placeholder="abcdef1234567890abcdef1234567890" />
-
+    <!-- ── Step 1: phone ── -->
+    <div class="step active" id="step-phone">
       <label>Номер телефона</label>
-      <input type="tel" id="inp-phone" placeholder="+79001234567" />
-      <p class="hint">Получить ключи: <a href="https://my.telegram.org" target="_blank">my.telegram.org</a> → API development tools</p>
-
-      <div class="alert alert-error" id="err-credentials"></div>
-      <button class="btn btn-primary btn-full" id="btn-send-code" onclick="sendCode()">Получить код</button>
-      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="goStep('pick')">← Назад</button>
+      <input type="tel" id="inp-phone" placeholder="+79001234567"
+             onkeydown="if(event.key==='Enter') sendCode()" autofocus />
+      <p class="hint">Введите номер в международном формате. На него придёт код в Telegram.</p>
+      <div class="alert alert-error" id="err-phone"></div>
+      <button class="btn btn-primary btn-full" id="btn-send-code" onclick="sendCode()">
+        Получить код →
+      </button>
     </div>
 
-    <!-- ── Step: SMS code ── -->
+    <!-- ── Step 2: code ── -->
     <div class="step" id="step-code">
       <p style="color:var(--subtext);font-size:14px;margin-bottom:16px;">
         Код отправлен в Telegram на номер <strong id="display-phone"></strong>
       </p>
       <label>Код из Telegram</label>
       <input type="text" id="inp-code" placeholder="12345" maxlength="10"
-             onkeydown="if(event.key==='Enter') verifyCode()" />
+             onkeydown="if(event.key==='Enter') verifyCode()" autofocus />
       <div class="alert alert-error" id="err-code"></div>
       <button class="btn btn-primary btn-full" id="btn-verify-code" onclick="verifyCode()">Войти</button>
-      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="goStep('credentials')">← Назад</button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="goStep('phone')">← Назад</button>
     </div>
 
-    <!-- ── Step: 2FA ── -->
+    <!-- ── Step 3: 2FA ── -->
     <div class="step" id="step-2fa">
       <p style="color:var(--subtext);font-size:14px;margin-bottom:16px;">
         На аккаунте включена двухфакторная аутентификация
       </p>
-      <label>Пароль 2FA</label>
+      <label>Облачный пароль</label>
       <input type="password" id="inp-2fa" placeholder="••••••••"
-             onkeydown="if(event.key==='Enter') verify2fa()" />
+             onkeydown="if(event.key==='Enter') verify2fa()" autofocus />
       <div class="alert alert-error" id="err-2fa"></div>
       <button class="btn btn-primary btn-full" id="btn-2fa" onclick="verify2fa()">Подтвердить</button>
     </div>
@@ -696,70 +651,32 @@ function formatDate(iso) {
 // ================================================================ //
 //  Login flow
 // ================================================================ //
-let selectedMethod = 'tdata';
 
 function goStep(name) {
   document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
   document.getElementById('step-' + name).classList.add('active');
+  // focus first input in new step
+  const inp = document.querySelector(`#step-${name} input`);
+  if (inp) setTimeout(() => inp.focus(), 50);
 }
 
-function pickMethod(m) {
-  selectedMethod = m;
-  document.getElementById('mc-tdata').classList.toggle('selected', m === 'tdata');
-  document.getElementById('mc-api').classList.toggle('selected', m === 'api');
-  document.getElementById('chk-tdata').textContent = m === 'tdata' ? '✓' : '';
-  document.getElementById('chk-api').textContent   = m === 'api'   ? '✓' : '';
-}
-
-function goFromPick() {
-  hideAlert('err-pick');
-  if (selectedMethod === 'tdata') goStep('tdata');
-  else goStep('credentials');
-}
-
-// ── tdata login ──
-async function loginFromTdata() {
-  hideAlert('err-tdata');
-  const path = document.getElementById('inp-tdata').value.trim();
-  setLoading('btn-tdata-login', true, 'Войти');
-
-  const res = await api('/api/auth/from-tdata', {
-    method: 'POST',
-    body: JSON.stringify({ tdata_path: path }),
-  });
-  setLoading('btn-tdata-login', false, 'Войти');
-
-  if (res.success) {
-    onLoggedIn();
-  } else {
-    showAlert('err-tdata', res.error || 'Ошибка входа');
-  }
-}
-
-// ── API login ──
 async function sendCode() {
-  hideAlert('err-credentials');
-  const apiId   = document.getElementById('inp-api-id').value.trim();
-  const apiHash = document.getElementById('inp-api-hash').value.trim();
-  const phone   = document.getElementById('inp-phone').value.trim();
-
-  if (!apiId || !apiHash || !phone) {
-    showAlert('err-credentials', 'Заполните все поля');
-    return;
-  }
+  hideAlert('err-phone');
+  const phone = document.getElementById('inp-phone').value.trim();
+  if (!phone) { showAlert('err-phone', 'Введите номер телефона'); return; }
 
   setLoading('btn-send-code', true, 'Получить код');
   const res = await api('/api/auth/send-code', {
     method: 'POST',
-    body: JSON.stringify({ phone, api_id: apiId, api_hash: apiHash }),
+    body: JSON.stringify({ phone }),
   });
-  setLoading('btn-send-code', false, 'Получить код');
+  setLoading('btn-send-code', false, 'Получить код →');
 
   if (res.success) {
     document.getElementById('display-phone').textContent = phone;
     goStep('code');
   } else {
-    showAlert('err-credentials', res.error || 'Ошибка отправки кода');
+    showAlert('err-phone', res.error || 'Ошибка отправки кода');
   }
 }
 
@@ -809,15 +726,6 @@ async function doLogout() {
   location.reload();
 }
 
-// ================================================================ //
-//  App init
-// ================================================================ //
-async function init() {
-  const res = await api('/api/auth/status');
-  if (res.logged_in) {
-    onLoggedIn(res.user);
-  }
-}
 
 function onLoggedIn(user) {
   document.getElementById('login-screen').style.display = 'none';
@@ -1101,32 +1009,15 @@ async function saveSettings() {
 //  Boot
 // ================================================================ //
 
-// Pre-select tdata card and detect path
-pickMethod('tdata');
-
 async function init() {
-  // Check if already logged in
   const res = await api('/api/auth/status');
   if (res.logged_in) {
     onLoggedIn(res.user);
-    return;
   }
-
-  // Auto-detect tdata path
-  const td = await api('/api/auth/default-tdata-path');
-  if (td.path) {
-    document.getElementById('inp-tdata').value = td.path;
-  }
-  if (td.exists) {
-    document.getElementById('tdata-hint').textContent =
-      '✓ Telegram Desktop найден — можно нажать «Войти» сразу';
-    document.getElementById('tdata-hint').style.color = 'var(--success)';
-  } else {
-    document.getElementById('tdata-hint').textContent =
-      'Telegram Desktop не найден по стандартному пути. Укажите путь вручную.';
-    document.getElementById('tdata-hint').style.color = 'var(--warn)';
-  }
+  // if not logged in — login screen is already visible, nothing else needed
 }
+
+init();
 
 init();
 </script>
