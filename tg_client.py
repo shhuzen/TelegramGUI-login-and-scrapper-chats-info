@@ -2,9 +2,12 @@ import asyncio
 import logging
 import os
 import threading
+import urllib.request
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
+import socks
 from telethon import TelegramClient
 from telethon.errors import (
     PhoneCodeInvalidError,
@@ -19,10 +22,47 @@ logging.getLogger("telethon").setLevel(logging.ERROR)
 
 SESSION_FILE = "telegram_session"
 
-# Credentials embedded in the official Telegram Desktop client.
-# Using these means the user only needs a phone number — no registration needed.
 _BUILTIN_API_ID   = 2040
 _BUILTIN_API_HASH = "b18441a1ff607e10a989891a5462e627"
+
+
+def detect_system_proxy() -> tuple | None:
+    """Read Windows system proxy and return (socks_type, host, port) or None."""
+    try:
+        proxies = urllib.request.getproxies()
+        url = proxies.get("https") or proxies.get("http")
+        if not url:
+            return None
+        p = urlparse(url)
+        scheme = (p.scheme or "http").lower()
+        host, port = p.hostname, p.port or 8080
+        if "socks5" in scheme:
+            return (socks.SOCKS5, host, port)
+        if "socks4" in scheme:
+            return (socks.SOCKS4, host, port)
+        return (socks.HTTP, host, port)
+    except Exception:
+        return None
+
+
+def parse_proxy_string(proxy_str: str) -> tuple | None:
+    """Parse a user-supplied proxy string like socks5://127.0.0.1:1080."""
+    try:
+        proxy_str = proxy_str.strip()
+        if not proxy_str:
+            return None
+        if "://" not in proxy_str:
+            proxy_str = "http://" + proxy_str
+        p = urlparse(proxy_str)
+        scheme = (p.scheme or "http").lower()
+        host, port = p.hostname, p.port or 8080
+        if "socks5" in scheme:
+            return (socks.SOCKS5, host, port)
+        if "socks4" in scheme:
+            return (socks.SOCKS4, host, port)
+        return (socks.HTTP, host, port)
+    except Exception:
+        return None
 
 
 class TelegramClientManager:
@@ -35,6 +75,7 @@ class TelegramClientManager:
         self.phone: str | None = None
         self._phone_code_hash: str | None = None
         self.export_tasks: dict[int, dict] = {}
+        self.manual_proxy: str = ""   # set from UI settings
 
     # ------------------------------------------------------------------ #
     #  Event loop
@@ -46,6 +87,27 @@ class TelegramClientManager:
 
     def _run(self, coro, timeout: int = 120):
         return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=timeout)
+
+    # ------------------------------------------------------------------ #
+    #  Proxy helpers
+    # ------------------------------------------------------------------ #
+
+    def _get_proxy(self) -> tuple | None:
+        """Return proxy tuple for Telethon: manual setting → system proxy → None."""
+        if self.manual_proxy:
+            proxy = parse_proxy_string(self.manual_proxy)
+            if proxy:
+                return proxy
+        return detect_system_proxy()
+
+    def _make_client(self, session: str, api_id: int, api_hash: str) -> TelegramClient:
+        return TelegramClient(
+            session, api_id, api_hash,
+            loop=self.loop,
+            proxy=self._get_proxy(),
+            connection_retries=1,
+            timeout=10,
+        )
 
     # ------------------------------------------------------------------ #
     #  Auth
@@ -64,9 +126,7 @@ class TelegramClientManager:
         if not os.path.exists(session_path):
             return False  # no session file — skip entirely
         try:
-            self.client = TelegramClient(
-                SESSION_FILE, _BUILTIN_API_ID, _BUILTIN_API_HASH, loop=self.loop
-            )
+            self.client = self._make_client(SESSION_FILE, _BUILTIN_API_ID, _BUILTIN_API_HASH)
             self._run(self.client.connect(), timeout=15)
             if self.is_logged_in():
                 return True
@@ -87,14 +147,7 @@ class TelegramClientManager:
         self.phone = phone
         effective_api_id   = int(api_id)   if api_id   else _BUILTIN_API_ID
         effective_api_hash = api_hash       if api_hash else _BUILTIN_API_HASH
-        self.client = TelegramClient(
-            SESSION_FILE,
-            effective_api_id,
-            effective_api_hash,
-            loop=self.loop,
-            connection_retries=1,   # не зависать на повторах
-            timeout=10,             # 10 сек на одну попытку подключения
-        )
+        self.client = self._make_client(SESSION_FILE, effective_api_id, effective_api_hash)
 
         async def _send():
             await self.client.connect()

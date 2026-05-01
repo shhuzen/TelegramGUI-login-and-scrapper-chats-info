@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
     "update_mode": "interval",
     "update_interval_hours": 24,
     "update_daily_time": "03:00",
+    "proxy": "",   # e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080
 }
 
 
@@ -38,8 +39,13 @@ def save_config(config: dict):
 #  Startup
 # ------------------------------------------------------------------ #
 
+def _apply_proxy(cfg: dict):
+    tg.manual_proxy = cfg.get("proxy", "")
+
+
 def _startup():
     cfg = load_config()
+    _apply_proxy(cfg)
     try:
         if tg.try_restore_session():
             print("✓ Restored Telegram session")
@@ -164,6 +170,16 @@ def download_export(chat_id: int):
 # ------------------------------------------------------------------ #
 
 
+@app.route("/api/proxy/detected")
+def proxy_detected():
+    from tg_client import detect_system_proxy
+    proxy = detect_system_proxy()
+    if proxy:
+        type_name = {1: "SOCKS4", 2: "SOCKS5", 3: "HTTP"}.get(proxy[0], "?")
+        return jsonify({"found": True, "info": f"{type_name} {proxy[1]}:{proxy[2]}"})
+    return jsonify({"found": False})
+
+
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
     return jsonify(load_config())
@@ -173,10 +189,11 @@ def get_settings():
 def update_settings():
     data = request.json or {}
     cfg = load_config()
-    for key in {"save_folder", "export_folder", "update_mode", "update_interval_hours", "update_daily_time"}:
+    for key in {"save_folder", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy"}:
         if key in data:
             cfg[key] = data[key]
     save_config(cfg)
+    _apply_proxy(cfg)
     scheduler.reschedule(cfg)
     return jsonify({"success": True})
 

@@ -570,6 +570,14 @@
       <div class="section-title">Настройки</div>
 
       <div class="settings-card">
+        <h3>Прокси / VPN</h3>
+        <p id="proxy-detected" style="font-size:13px;color:var(--subtext);margin-bottom:10px;"></p>
+        <label>Адрес прокси <span style="color:var(--subtext);font-weight:400">(оставьте пустым — подхватится системный)</span></label>
+        <input type="text" id="s-proxy" placeholder="socks5://127.0.0.1:1080  или  http://127.0.0.1:8080" />
+        <p class="hint">Поддерживается SOCKS5, SOCKS4, HTTP. Happp и другие VPN-приложения обычно создают системный прокси автоматически.</p>
+      </div>
+
+      <div class="settings-card">
         <h3>Папки сохранения</h3>
         <label>Папка для бэкапа списка чатов</label>
         <input type="text" id="s-save-folder" placeholder="backups" />
@@ -977,6 +985,7 @@ async function backupNow() {
 async function loadSettings() {
   const cfg = await api('/api/settings');
 
+  document.getElementById('s-proxy').value          = cfg.proxy || '';
   document.getElementById('s-save-folder').value    = cfg.save_folder || 'backups';
   document.getElementById('s-export-folder').value  = cfg.export_folder || 'exports';
   document.getElementById('s-interval-hours').value = cfg.update_interval_hours || 24;
@@ -986,6 +995,16 @@ async function loadSettings() {
   document.getElementById('mode-interval').checked = mode === 'interval';
   document.getElementById('mode-daily').checked    = mode === 'daily';
   toggleScheduleMode();
+
+  // Show detected system proxy
+  const pd = await api('/api/proxy/detected');
+  const el = document.getElementById('proxy-detected');
+  if (pd.found) {
+    el.innerHTML = `✓ Системный прокси обнаружен: <strong>${pd.info}</strong> — будет использован автоматически`;
+    el.style.color = 'var(--success)';
+  } else {
+    el.textContent = 'Системный прокси не обнаружен.';
+  }
 }
 
 function toggleScheduleMode() {
@@ -999,6 +1018,7 @@ async function saveSettings() {
   const mode = document.querySelector('input[name="update-mode"]:checked').value;
 
   const body = {
+    proxy:                  document.getElementById('s-proxy').value.trim(),
     save_folder:            document.getElementById('s-save-folder').value.trim() || 'backups',
     export_folder:          document.getElementById('s-export-folder').value.trim() || 'exports',
     update_mode:            mode,
