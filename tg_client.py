@@ -252,7 +252,8 @@ class TelegramClientManager:
     def _format_chat(self, entity, dialog) -> dict:
         is_channel = isinstance(entity, Channel) and getattr(entity, "broadcast", False)
         chat_type = "channel" if is_channel else "group"
-        is_archived = getattr(dialog.folder, "id", None) == 1 if dialog.folder else False
+        is_archived = bool(getattr(dialog, "archived", False) or
+                          getattr(getattr(dialog, "dialog", None), "folder_id", 0) == 1)
 
         username = getattr(entity, "username", None)
         link = f"https://t.me/{username}" if username else None
