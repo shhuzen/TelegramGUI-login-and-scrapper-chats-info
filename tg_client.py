@@ -88,7 +88,12 @@ class TelegramClientManager:
         effective_api_id   = int(api_id)   if api_id   else _BUILTIN_API_ID
         effective_api_hash = api_hash       if api_hash else _BUILTIN_API_HASH
         self.client = TelegramClient(
-            SESSION_FILE, effective_api_id, effective_api_hash, loop=self.loop
+            SESSION_FILE,
+            effective_api_id,
+            effective_api_hash,
+            loop=self.loop,
+            connection_retries=1,   # не зависать на повторах
+            timeout=10,             # 10 сек на одну попытку подключения
         )
 
         async def _send():
@@ -98,9 +103,11 @@ class TelegramClientManager:
             return {"success": True}
 
         try:
-            return self._run(_send())
+            return self._run(_send(), timeout=30)  # максимум 30 сек на весь запрос
         except FloodWaitError as e:
             return {"success": False, "error": f"Слишком много попыток. Подождите {e.seconds} сек."}
+        except TimeoutError:
+            return {"success": False, "error": "Не удаётся подключиться к Telegram. Проверьте интернет или попробуйте через VPN/прокси."}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
