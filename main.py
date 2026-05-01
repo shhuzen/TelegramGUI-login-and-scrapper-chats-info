@@ -76,10 +76,12 @@ def auth_status():
 @app.route("/api/auth/send-code", methods=["POST"])
 def send_code():
     data = request.json or {}
-    phone = (data.get("phone") or "").strip()
-    if not phone:
-        return jsonify({"success": False, "error": "Введите номер телефона"}), 400
-    return jsonify(tg.send_code(phone))
+    phone    = (data.get("phone")    or "").strip()
+    api_id   = (data.get("api_id")   or "").strip()
+    api_hash = (data.get("api_hash") or "").strip()
+    if not phone or not api_id or not api_hash:
+        return jsonify({"success": False, "error": "Заполните все поля"}), 400
+    return jsonify(tg.send_code(phone, api_id, api_hash))
 
 
 @app.route("/api/auth/verify-code", methods=["POST"])

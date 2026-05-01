@@ -464,16 +464,22 @@
     <h1>✈ Telegram Manager</h1>
     <p class="subtitle">Войдите через номер телефона</p>
 
-    <!-- ── Step 1: phone ── -->
-    <div class="step active" id="step-phone">
+    <!-- ── Step 1: credentials ── -->
+    <div class="step active" id="step-credentials">
+      <label>API ID</label>
+      <input type="text" id="inp-api-id" placeholder="12345678" />
+
+      <label>API Hash</label>
+      <input type="text" id="inp-api-hash" placeholder="abcdef1234567890abcdef1234567890" />
+
       <label>Номер телефона</label>
       <input type="tel" id="inp-phone" placeholder="+79001234567"
-             onkeydown="if(event.key==='Enter') sendCode()" autofocus />
-      <p class="hint">Введите номер в международном формате. На него придёт код в Telegram.</p>
-      <div class="alert alert-error" id="err-phone"></div>
-      <button class="btn btn-primary btn-full" id="btn-send-code" onclick="sendCode()">
-        Получить код →
-      </button>
+             onkeydown="if(event.key==='Enter') sendCode()" />
+
+      <p class="hint">Ключи получить на <a href="https://my.telegram.org" target="_blank">my.telegram.org</a> → API development tools → Desktop</p>
+
+      <div class="alert alert-error" id="err-credentials"></div>
+      <button class="btn btn-primary btn-full" id="btn-send-code" onclick="sendCode()">Получить код →</button>
     </div>
 
     <!-- ── Step 2: code ── -->
@@ -483,10 +489,10 @@
       </p>
       <label>Код из Telegram</label>
       <input type="text" id="inp-code" placeholder="12345" maxlength="10"
-             onkeydown="if(event.key==='Enter') verifyCode()" autofocus />
+             onkeydown="if(event.key==='Enter') verifyCode()" />
       <div class="alert alert-error" id="err-code"></div>
       <button class="btn btn-primary btn-full" id="btn-verify-code" onclick="verifyCode()">Войти</button>
-      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="goStep('phone')">← Назад</button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="goStep('credentials')">← Назад</button>
     </div>
 
     <!-- ── Step 3: 2FA ── -->
@@ -496,7 +502,7 @@
       </p>
       <label>Облачный пароль</label>
       <input type="password" id="inp-2fa" placeholder="••••••••"
-             onkeydown="if(event.key==='Enter') verify2fa()" autofocus />
+             onkeydown="if(event.key==='Enter') verify2fa()" />
       <div class="alert alert-error" id="err-2fa"></div>
       <button class="btn btn-primary btn-full" id="btn-2fa" onclick="verify2fa()">Подтвердить</button>
     </div>
@@ -661,14 +667,20 @@ function goStep(name) {
 }
 
 async function sendCode() {
-  hideAlert('err-phone');
-  const phone = document.getElementById('inp-phone').value.trim();
-  if (!phone) { showAlert('err-phone', 'Введите номер телефона'); return; }
+  hideAlert('err-credentials');
+  const apiId   = document.getElementById('inp-api-id').value.trim();
+  const apiHash = document.getElementById('inp-api-hash').value.trim();
+  const phone   = document.getElementById('inp-phone').value.trim();
+
+  if (!apiId || !apiHash || !phone) {
+    showAlert('err-credentials', 'Заполните все поля');
+    return;
+  }
 
   setLoading('btn-send-code', true, 'Получить код');
   const res = await api('/api/auth/send-code', {
     method: 'POST',
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({ phone, api_id: apiId, api_hash: apiHash }),
   });
   setLoading('btn-send-code', false, 'Получить код →');
 
@@ -676,7 +688,7 @@ async function sendCode() {
     document.getElementById('display-phone').textContent = phone;
     goStep('code');
   } else {
-    showAlert('err-phone', res.error || 'Ошибка отправки кода');
+    showAlert('err-credentials', res.error || 'Ошибка отправки кода');
   }
 }
 

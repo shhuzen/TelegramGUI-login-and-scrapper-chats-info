@@ -83,10 +83,12 @@ class TelegramClientManager:
                 pass
             return False
 
-    def send_code(self, phone: str) -> dict:
+    def send_code(self, phone: str, api_id: int | None = None, api_hash: str | None = None) -> dict:
         self.phone = phone
+        effective_api_id   = int(api_id)   if api_id   else _BUILTIN_API_ID
+        effective_api_hash = api_hash       if api_hash else _BUILTIN_API_HASH
         self.client = TelegramClient(
-            SESSION_FILE, _BUILTIN_API_ID, _BUILTIN_API_HASH, loop=self.loop
+            SESSION_FILE, effective_api_id, effective_api_hash, loop=self.loop
         )
 
         async def _send():
