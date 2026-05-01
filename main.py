@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import atexit
 from pathlib import Path
 
@@ -196,6 +197,73 @@ def update_settings():
     _apply_proxy(cfg)
     scheduler.reschedule(cfg)
     return jsonify({"success": True})
+
+
+# ------------------------------------------------------------------ #
+#  Autostart (Windows registry)
+# ------------------------------------------------------------------ #
+
+_APP_NAME = "TelegramManager"
+
+
+def _autostart_entry() -> str:
+    """Command stored in registry: pythonw main.py inside the project folder."""
+    pythonw = Path(sys.executable).parent / "pythonw.exe"
+    if not pythonw.exists():
+        pythonw = sys.executable          # fallback to python.exe
+    script = Path(__file__).resolve()
+    return f'"{pythonw}" "{script}"'
+
+
+def _get_autostart() -> bool:
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_READ,
+        )
+        winreg.QueryValueEx(key, _APP_NAME)
+        winreg.CloseKey(key)
+        return True
+    except Exception:
+        return False
+
+
+def _set_autostart(enable: bool):
+    import winreg
+    key = winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Run",
+        0, winreg.KEY_SET_VALUE,
+    )
+    if enable:
+        winreg.SetValueEx(key, _APP_NAME, 0, winreg.REG_SZ, _autostart_entry())
+    else:
+        try:
+            winreg.DeleteValue(key, _APP_NAME)
+        except FileNotFoundError:
+            pass
+    winreg.CloseKey(key)
+
+
+@app.route("/api/autostart", methods=["GET"])
+def get_autostart():
+    try:
+        return jsonify({"enabled": _get_autostart()})
+    except Exception as e:
+        return jsonify({"enabled": False, "error": str(e)})
+
+
+@app.route("/api/autostart", methods=["POST"])
+def set_autostart():
+    data = request.json or {}
+    enable = bool(data.get("enabled", False))
+    try:
+        _set_autostart(enable)
+        return jsonify({"success": True, "enabled": enable})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 # ------------------------------------------------------------------ #

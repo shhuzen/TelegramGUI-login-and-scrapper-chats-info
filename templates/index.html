@@ -447,6 +447,41 @@
       min-width: 18px;
     }
 
+    /* ===== Toggle switch ===== */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+      font-size: 14px;
+    }
+
+    .toggle {
+      width: 44px;
+      height: 24px;
+      background: var(--border);
+      border-radius: 12px;
+      position: relative;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+
+    .toggle.on { background: var(--accent); }
+
+    .toggle-knob {
+      width: 18px;
+      height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      transition: left .2s;
+    }
+
+    .toggle.on .toggle-knob { left: 23px; }
+
     /* ===== Responsive ===== */
     @media (max-width: 640px) {
       .row-2 { grid-template-columns: 1fr; }
@@ -613,6 +648,15 @@
           <label>Время запуска (UTC)</label>
           <input type="time" id="s-daily-time" value="03:00" />
         </div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Система</h3>
+        <label class="toggle-row" onclick="toggleAutostart()">
+          <span>Запускать вместе с Windows</span>
+          <div class="toggle" id="toggle-autostart"><div class="toggle-knob"></div></div>
+        </label>
+        <p class="hint" id="autostart-hint" style="margin-top:6px;"></p>
       </div>
 
       <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()">Сохранить настройки</button>
@@ -1019,7 +1063,37 @@ async function backupNow() {
 // ================================================================ //
 //  Settings
 // ================================================================ //
+let autostartEnabled = false;
+
+async function loadAutostart() {
+  const res = await api('/api/autostart');
+  autostartEnabled = res.enabled;
+  const t = document.getElementById('toggle-autostart');
+  t.classList.toggle('on', autostartEnabled);
+  document.getElementById('autostart-hint').textContent = autostartEnabled
+    ? '✓ Приложение запустится автоматически при входе в Windows'
+    : 'Автозапуск выключен';
+}
+
+async function toggleAutostart() {
+  const next = !autostartEnabled;
+  const res = await api('/api/autostart', {
+    method: 'POST',
+    body: JSON.stringify({ enabled: next }),
+  });
+  if (res.success) {
+    autostartEnabled = next;
+    document.getElementById('toggle-autostart').classList.toggle('on', next);
+    document.getElementById('autostart-hint').textContent = next
+      ? '✓ Приложение запустится автоматически при входе в Windows'
+      : 'Автозапуск выключен';
+  } else {
+    document.getElementById('autostart-hint').textContent = 'Ошибка: ' + (res.error || '');
+  }
+}
+
 async function loadSettings() {
+  loadAutostart();
   const cfg = await api('/api/settings');
 
   document.getElementById('s-proxy').value          = cfg.proxy || '';
