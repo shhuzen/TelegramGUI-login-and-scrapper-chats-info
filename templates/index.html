@@ -538,8 +538,10 @@
         <button class="filter-btn" id="filter-channels" onclick="setFilter('channel', this)">Каналы</button>
         <button class="filter-btn" id="filter-archived" onclick="setFilter('archived', this)">Архив</button>
         <button class="btn btn-primary btn-sm" onclick="loadChats()">↻ Обновить</button>
+        <button class="btn btn-success btn-sm" id="btn-save-md" onclick="saveBackupNow()">💾 Сохранить в MD</button>
       </div>
 
+      <div class="alert" id="chats-backup-alert" style="margin-bottom:12px;"></div>
       <div id="chats-container">
         <div class="loading-row"><div class="spinner"></div> Загрузка чатов…</div>
       </div>
@@ -971,6 +973,24 @@ function resetExport(chatId) {
 // ================================================================ //
 //  Backup
 // ================================================================ //
+async function saveBackupNow() {
+  const btn = document.getElementById('btn-save-md');
+  const alert = document.getElementById('chats-backup-alert');
+  btn.disabled = true;
+  btn.textContent = '…';
+  alert.className = 'alert';
+
+  const res = await api('/api/backup/now', { method: 'POST' });
+  btn.disabled = false;
+  btn.textContent = '💾 Сохранить в MD';
+
+  if (res.success) {
+    showAlert('chats-backup-alert', `✓ Сохранено ${res.count} чатов → ${res.file}`, 'success');
+  } else {
+    showAlert('chats-backup-alert', res.error || 'Ошибка', 'error');
+  }
+}
+
 async function loadBackupStatus() {
   const s = await api('/api/backup/status');
   document.getElementById('bs-last-run').textContent  = formatDate(s.last_run);
