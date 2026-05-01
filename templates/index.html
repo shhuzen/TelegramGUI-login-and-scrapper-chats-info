@@ -674,6 +674,21 @@ function goStep(name) {
   if (inp) setTimeout(() => inp.focus(), 50);
 }
 
+function saveCredentials() {
+  localStorage.setItem('tg_api_id',   document.getElementById('inp-api-id').value.trim());
+  localStorage.setItem('tg_api_hash', document.getElementById('inp-api-hash').value.trim());
+  localStorage.setItem('tg_phone',    document.getElementById('inp-phone').value.trim());
+}
+
+function loadCredentials() {
+  const id   = localStorage.getItem('tg_api_id');
+  const hash = localStorage.getItem('tg_api_hash');
+  const phone = localStorage.getItem('tg_phone');
+  if (id)    document.getElementById('inp-api-id').value   = id;
+  if (hash)  document.getElementById('inp-api-hash').value = hash;
+  if (phone) document.getElementById('inp-phone').value    = phone;
+}
+
 async function sendCode() {
   hideAlert('err-credentials');
   const apiId   = document.getElementById('inp-api-id').value.trim();
@@ -684,6 +699,8 @@ async function sendCode() {
     showAlert('err-credentials', 'Заполните все поля');
     return;
   }
+
+  saveCredentials();
 
   setLoading('btn-send-code', true, 'Получить код');
   const res = await api('/api/auth/send-code', {
@@ -1042,11 +1059,11 @@ async function saveSettings() {
 // ================================================================ //
 
 async function init() {
+  loadCredentials();
   const res = await api('/api/auth/status');
   if (res.logged_in) {
     onLoggedIn(res.user);
   }
-  // if not logged in — login screen is already visible, nothing else needed
 }
 
 init();
