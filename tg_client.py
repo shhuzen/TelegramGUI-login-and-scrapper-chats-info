@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import threading
 from datetime import datetime
@@ -12,6 +13,9 @@ from telethon.errors import (
     FloodWaitError,
 )
 from telethon.tl.types import Channel, Chat, User
+
+# Suppress Telethon's internal "Attempt N at connecting failed" messages
+logging.getLogger("telethon").setLevel(logging.ERROR)
 
 SESSION_FILE = "telegram_session"
 
@@ -56,16 +60,27 @@ class TelegramClientManager:
             return False
 
     def try_restore_session(self) -> bool:
-        if not os.path.exists(f"{SESSION_FILE}.session"):
-            return False  # no session file — skip network call entirely
+        session_path = f"{SESSION_FILE}.session"
+        if not os.path.exists(session_path):
+            return False  # no session file — skip entirely
         try:
             self.client = TelegramClient(
                 SESSION_FILE, _BUILTIN_API_ID, _BUILTIN_API_HASH, loop=self.loop
             )
             self._run(self.client.connect(), timeout=15)
-            return self.is_logged_in()
+            if self.is_logged_in():
+                return True
+            # connected but not authorised — stale session file, remove it
+            self.client = None
+            os.remove(session_path)
+            return False
         except Exception:
             self.client = None
+            # remove the file so we don't retry on every startup
+            try:
+                os.remove(session_path)
+            except OSError:
+                pass
             return False
 
     def send_code(self, phone: str) -> dict:
