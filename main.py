@@ -9,11 +9,36 @@ from flask import Flask, jsonify, render_template, request, send_file
 from tg_client import TelegramClientManager
 from scheduler_service import BackupScheduler
 
-app = Flask("", static_url_path="", static_folder="templates/static")
+# ------------------------------------------------------------------ #
+#  Path helpers (work both in normal mode and inside PyInstaller exe)
+# ------------------------------------------------------------------ #
+
+def _bundle_path(*parts) -> str:
+    """Path to bundled read-only assets (templates etc.)."""
+    base = getattr(sys, "_MEIPASS", Path(__file__).parent)
+    return str(Path(base).joinpath(*parts))
+
+def _data_path(*parts) -> str:
+    """Path for user data (config, session) — always next to the exe / script."""
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
+    else:
+        base = Path(__file__).parent
+    return str(base.joinpath(*parts))
+
+# Change working directory to data path so session/config land next to exe
+os.chdir(_data_path())
+
+app = Flask(
+    "",
+    static_url_path="",
+    static_folder=_bundle_path("templates", "static"),
+    template_folder=_bundle_path("templates"),
+)
 tg = TelegramClientManager()
 scheduler = BackupScheduler(tg)
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = _data_path("config.json")
 DEFAULT_CONFIG = {
     "save_folder": "backups",
     "export_folder": "exports",

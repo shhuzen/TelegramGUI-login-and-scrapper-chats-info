@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 import threading
 import urllib.request
 from datetime import datetime
@@ -20,7 +21,13 @@ from telethon.tl.types import Channel, Chat, User
 # Suppress Telethon's internal "Attempt N at connecting failed" messages
 logging.getLogger("telethon").setLevel(logging.ERROR)
 
-SESSION_FILE = "telegram_session"
+def _data_path(name: str) -> str:
+    if getattr(sys, "frozen", False):
+        import pathlib
+        return str(pathlib.Path(sys.executable).parent / name)
+    return name
+
+SESSION_FILE = _data_path("telegram_session")
 
 _BUILTIN_API_ID   = 2040
 _BUILTIN_API_HASH = "b18441a1ff607e10a989891a5462e627"
