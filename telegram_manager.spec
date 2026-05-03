@@ -10,6 +10,10 @@ a = Analysis(
         ('templates', 'templates'),
     ],
     hiddenimports=[
+        'pystray',
+        'pystray._win32',
+        'PIL',
+        'PIL.Image',
         'telethon',
         'telethon.sessions',
         'telethon.network',

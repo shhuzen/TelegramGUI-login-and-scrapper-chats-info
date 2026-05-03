@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import atexit
+import threading
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file
@@ -312,5 +313,18 @@ def backup_status():
 #  Run
 # ------------------------------------------------------------------ #
 
+def _run_flask():
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Flask runs in a background thread so the main thread is free for the tray
+    flask_thread = threading.Thread(target=_run_flask, daemon=True)
+    flask_thread.start()
+
+    from tray import run_tray
+    run_tray(tg, _get_autostart, _set_autostart)
+
+    # Tray exited — clean shutdown
+    scheduler.shutdown()
+    sys.exit(0)
