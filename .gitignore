@@ -178,3 +178,4 @@ pyaes-*.tar.gz
 #.idea/
 node_modules/
 TelegramManager.exe
+templates/
