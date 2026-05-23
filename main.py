@@ -3,9 +3,11 @@ import os
 import sys
 import atexit
 import threading
+from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, jsonify, render_template, request, send_file, session
+import pin_auth
 
 from tg_client import TelegramClientManager
 from scheduler_service import BackupScheduler
@@ -36,6 +38,25 @@ app = Flask(
     static_folder=_bundle_path("templates", "static"),
     template_folder=_bundle_path("templates"),
 )
+
+
+def _get_or_create_secret_key() -> bytes:
+    key_file = _data_path("secret_key.bin")
+    if os.path.exists(key_file):
+        with open(key_file, "rb") as f:
+            return f.read()
+    key = os.urandom(32)
+    with open(key_file, "wb") as f:
+        f.write(key)
+    return key
+
+app.secret_key = _get_or_create_secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
+
 tg = TelegramClientManager()
 scheduler = BackupScheduler(tg)
 
@@ -50,6 +71,8 @@ DEFAULT_CONFIG = {
     "proxy": "",
     "subscribe_md_path": "",
     "auto_backup_enabled": True,
+    "pin_hash": "",
+    "pin_enabled": False,
 }
 
 
@@ -86,6 +109,23 @@ def _startup():
 
 
 _startup()
+
+# ------------------------------------------------------------------ #
+#  PIN guard
+# ------------------------------------------------------------------ #
+
+_PIN_EXEMPT = {"/api/pin/status", "/api/pin/verify"}
+
+@app.before_request
+def _pin_guard():
+    cfg = load_config()
+    if not cfg.get("pin_enabled"):
+        return  # PIN off, allow all
+    if request.path in _PIN_EXEMPT or not request.path.startswith("/api/"):
+        return  # exempt
+    if session.get("pin_verified"):
+        return  # already unlocked
+    return jsonify({"error": "PIN required", "pin_required": True}), 401
 
 # ------------------------------------------------------------------ #
 #  Main page
@@ -141,6 +181,72 @@ def verify_2fa():
 @app.route("/api/auth/logout", methods=["POST"])
 def logout():
     return jsonify(tg.logout())
+
+
+@app.route("/api/pin/status")
+def pin_status():
+    cfg = load_config()
+    enabled = bool(cfg.get("pin_enabled"))
+    verified = bool(session.get("pin_verified"))
+    return jsonify({"enabled": enabled, "verified": verified})
+
+@app.route("/api/pin/verify", methods=["POST"])
+def pin_verify():
+    cfg = load_config()
+    if not cfg.get("pin_enabled"):
+        session["pin_verified"] = True
+        session.permanent = True
+        return jsonify({"success": True})
+    data = request.json or {}
+    pin = str(data.get("pin", "")).strip()
+    ip = request.remote_addr or "local"
+    allowed, wait = pin_auth.check_rate_limit(ip)
+    if not allowed:
+        return jsonify({"success": False, "error": f"Слишком много попыток. Подождите {wait} сек."}), 429
+    if pin_auth.verify_pin(pin, cfg.get("pin_hash", "")):
+        pin_auth.clear_attempts(ip)
+        session["pin_verified"] = True
+        session.permanent = True
+        return jsonify({"success": True})
+    pin_auth.record_attempt(ip)
+    allowed2, wait2 = pin_auth.check_rate_limit(ip)
+    remaining = pin_auth.MAX_ATTEMPTS - len([t for t in pin_auth._attempts[ip]])
+    if not allowed2:
+        return jsonify({"success": False, "error": f"Заблокировано на {wait2} сек."}), 429
+    return jsonify({"success": False, "error": f"Неверный PIN. Осталось попыток: {max(remaining,0)}"}), 401
+
+@app.route("/api/pin/set", methods=["POST"])
+def pin_set():
+    data = request.json or {}
+    new_pin = str(data.get("new_pin", "")).strip()
+    if len(new_pin) < 4 or not new_pin.isdigit():
+        return jsonify({"success": False, "error": "PIN должен содержать минимум 4 цифры"}), 400
+    cfg = load_config()
+    # If PIN already enabled, require current PIN
+    if cfg.get("pin_enabled") and cfg.get("pin_hash"):
+        current = str(data.get("current_pin", "")).strip()
+        if not pin_auth.verify_pin(current, cfg["pin_hash"]):
+            return jsonify({"success": False, "error": "Неверный текущий PIN"}), 401
+    cfg["pin_hash"] = pin_auth.hash_pin(new_pin)
+    cfg["pin_enabled"] = True
+    save_config(cfg)
+    session["pin_verified"] = True
+    session.permanent = True
+    return jsonify({"success": True})
+
+@app.route("/api/pin/disable", methods=["POST"])
+def pin_disable():
+    cfg = load_config()
+    if cfg.get("pin_enabled") and cfg.get("pin_hash"):
+        data = request.json or {}
+        current = str(data.get("current_pin", "")).strip()
+        if not pin_auth.verify_pin(current, cfg["pin_hash"]):
+            return jsonify({"success": False, "error": "Неверный PIN"}), 401
+    cfg["pin_enabled"] = False
+    cfg["pin_hash"] = ""
+    save_config(cfg)
+    session.pop("pin_verified", None)
+    return jsonify({"success": True})
 
 
 # ------------------------------------------------------------------ #
@@ -246,7 +352,7 @@ def get_settings():
 def update_settings():
     data = request.json or {}
     cfg = load_config()
-    for key in {"save_folder", "backup_filename", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy", "auto_backup_enabled"}:
+    for key in {"save_folder", "backup_filename", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy", "auto_backup_enabled", "pin_enabled", "pin_hash"}:
         if key in data:
             cfg[key] = data[key]
     save_config(cfg)

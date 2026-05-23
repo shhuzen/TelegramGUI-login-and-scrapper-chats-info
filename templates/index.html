@@ -489,9 +489,94 @@
       .app-header { padding: 0 14px; }
       .tab-content { padding: 18px 14px; }
     }
+
+    /* ===== PIN overlay ===== */
+    #pin-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 9999;
+      background: var(--bg);
+      align-items: center;
+      justify-content: center;
+    }
+    #pin-overlay.visible { display: flex; }
+
+    .pin-card {
+      background: var(--sidebar);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 44px 40px 36px;
+      width: 100%; max-width: 360px;
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+    .pin-card h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .pin-card .subtitle { color: var(--subtext); font-size: 13px; margin-bottom: 28px; }
+
+    .pin-dots {
+      display: flex; justify-content: center; gap: 14px; margin-bottom: 24px;
+    }
+    .pin-dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid var(--border);
+      transition: background .15s, border-color .15s;
+    }
+    .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+    .pin-dot.error  { background: var(--danger); border-color: var(--danger); }
+
+    .pin-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+      margin-bottom: 16px;
+    }
+    .pin-btn {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text);
+      font-size: 20px; font-weight: 600;
+      padding: 16px 0; cursor: pointer;
+      transition: background .1s;
+      user-select: none;
+    }
+    .pin-btn:hover { background: var(--border); }
+    .pin-btn:active { background: var(--accent); }
+    .pin-btn.wide { grid-column: span 2; }
+
+    .pin-error {
+      color: var(--danger); font-size: 13px;
+      min-height: 20px; margin-top: 4px;
+    }
+    .pin-lockout { color: var(--warn); font-size: 13px; margin-top: 8px; }
   </style>
 </head>
 <body>
+
+<!-- PIN overlay -->
+<div id="pin-overlay">
+  <div class="pin-card">
+    <h2>🔒 Telegram Manager</h2>
+    <p class="subtitle">Введите PIN-код для доступа</p>
+    <div class="pin-dots" id="pin-dots">
+      <div class="pin-dot" id="pd0"></div>
+      <div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div>
+      <div class="pin-dot" id="pd3"></div>
+    </div>
+    <div class="pin-grid">
+      <button class="pin-btn" onclick="pinKey('1')">1</button>
+      <button class="pin-btn" onclick="pinKey('2')">2</button>
+      <button class="pin-btn" onclick="pinKey('3')">3</button>
+      <button class="pin-btn" onclick="pinKey('4')">4</button>
+      <button class="pin-btn" onclick="pinKey('5')">5</button>
+      <button class="pin-btn" onclick="pinKey('6')">6</button>
+      <button class="pin-btn" onclick="pinKey('7')">7</button>
+      <button class="pin-btn" onclick="pinKey('8')">8</button>
+      <button class="pin-btn" onclick="pinKey('9')">9</button>
+      <button class="pin-btn" onclick="pinKey('')">⌫</button>
+      <button class="pin-btn" onclick="pinKey('0')">0</button>
+      <button class="pin-btn" onclick="pinSubmit()">✓</button>
+    </div>
+    <div class="pin-error" id="pin-error"></div>
+    <div class="pin-lockout" id="pin-lockout" style="display:none;"></div>
+  </div>
+</div>
 
 <!-- ============================= LOGIN ============================= -->
 <div id="login-screen">
@@ -741,6 +826,46 @@
           <div class="toggle" id="toggle-autostart"><div class="toggle-knob"></div></div>
         </label>
         <p class="hint" id="autostart-hint" style="margin-top:6px;"></p>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+          <label class="toggle-row" onclick="togglePinEnabled()">
+            <span>Защита PIN-кодом</span>
+            <div class="toggle" id="toggle-pin"><div class="toggle-knob"></div></div>
+          </label>
+          <p class="hint" style="margin-top:4px;margin-bottom:14px;">При открытии браузера будет запрашиваться PIN-код.</p>
+
+          <!-- Set / change PIN form -->
+          <div id="pin-set-form" style="display:none;">
+            <div id="pin-current-wrap">
+              <label>Текущий PIN</label>
+              <input type="password" id="pin-current" maxlength="8" placeholder="••••" inputmode="numeric" pattern="[0-9]*" />
+            </div>
+            <label>Новый PIN (4–8 цифр)</label>
+            <input type="password" id="pin-new" maxlength="8" placeholder="••••" inputmode="numeric" pattern="[0-9]*" />
+            <label>Повторите PIN</label>
+            <input type="password" id="pin-confirm" maxlength="8" placeholder="••••" inputmode="numeric" pattern="[0-9]*" />
+            <div style="margin-top:12px;display:flex;gap:8px;">
+              <button class="btn btn-primary btn-sm" id="btn-pin-save" onclick="savePin()">Установить PIN</button>
+              <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);" onclick="cancelPinForm()">Отмена</button>
+            </div>
+            <div class="alert" id="pin-set-alert" style="margin-top:10px;"></div>
+          </div>
+
+          <!-- Disable PIN form -->
+          <div id="pin-disable-form" style="display:none;">
+            <label>Текущий PIN для отключения</label>
+            <input type="password" id="pin-disable-input" maxlength="8" placeholder="••••" inputmode="numeric" pattern="[0-9]*" />
+            <div style="margin-top:12px;display:flex;gap:8px;">
+              <button class="btn btn-sm" style="background:var(--danger);color:#fff;" id="btn-pin-disable" onclick="disablePin()">Отключить PIN</button>
+              <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);" onclick="cancelPinForm()">Отмена</button>
+            </div>
+            <div class="alert" id="pin-disable-alert" style="margin-top:10px;"></div>
+          </div>
+
+          <div id="pin-change-wrap" style="display:none;margin-top:8px;">
+            <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);" onclick="showPinSetForm(true)">Сменить PIN</button>
+          </div>
+        </div>
       </div>
 
       <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()">Сохранить настройки</button>
@@ -1397,18 +1522,197 @@ async function saveSettings() {
 }
 
 // ================================================================ //
+//  PIN overlay
+// ================================================================ //
+let pinBuffer = '';
+const PIN_LEN = 4;
+
+function pinKey(k) {
+  if (document.getElementById('pin-lockout').style.display !== 'none') return;
+  if (k === '') {
+    pinBuffer = pinBuffer.slice(0, -1);
+  } else if (pinBuffer.length < 8) {
+    pinBuffer += k;
+    if (pinBuffer.length >= PIN_LEN) pinSubmit();  // auto-submit at 4 digits
+  }
+  updatePinDots();
+}
+
+function updatePinDots(errorMode) {
+  for (let i = 0; i < 4; i++) {
+    const d = document.getElementById('pd' + i);
+    d.classList.toggle('filled', !errorMode && i < pinBuffer.length);
+    d.classList.toggle('error', !!errorMode);
+  }
+}
+
+async function pinSubmit() {
+  if (!pinBuffer) return;
+  const pin = pinBuffer;
+  pinBuffer = '';
+  updatePinDots();
+
+  const res = await fetch('/api/pin/verify', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({pin}),
+  }).then(r => r.json()).catch(() => ({success: false, error: 'Ошибка сети'}));
+
+  if (res.success) {
+    document.getElementById('pin-overlay').classList.remove('visible');
+    document.getElementById('pin-error').textContent = '';
+    // Continue initialising the app
+    initAfterPin();
+  } else if (res.error && res.error.includes('сек')) {
+    // Lockout
+    document.getElementById('pin-error').textContent = '';
+    startPinLockout(res.error);
+    updatePinDots(true);
+  } else {
+    document.getElementById('pin-error').textContent = res.error || 'Неверный PIN';
+    updatePinDots(true);
+    setTimeout(() => { updatePinDots(false); }, 600);
+  }
+}
+
+let _lockoutTimer = null;
+function startPinLockout(msg) {
+  const el = document.getElementById('pin-lockout');
+  el.style.display = 'block';
+  el.textContent = msg;
+  if (_lockoutTimer) clearInterval(_lockoutTimer);
+  // Extract seconds from message
+  const m = msg.match(/(\d+)\s*сек/);
+  let secs = m ? parseInt(m[1]) : 60;
+  _lockoutTimer = setInterval(() => {
+    secs--;
+    if (secs <= 0) {
+      clearInterval(_lockoutTimer);
+      el.style.display = 'none';
+      document.getElementById('pin-error').textContent = '';
+      updatePinDots(false);
+    } else {
+      el.textContent = `Подождите ${secs} сек. перед следующей попыткой`;
+    }
+  }, 1000);
+}
+
+// Keyboard support for PIN overlay
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('pin-overlay').classList.contains('visible')) return;
+  if (e.key >= '0' && e.key <= '9') pinKey(e.key);
+  else if (e.key === 'Backspace') pinKey('');
+  else if (e.key === 'Enter') pinSubmit();
+});
+
+// ================================================================ //
+//  PIN settings
+// ================================================================ //
+let pinCurrentlyEnabled = false;
+
+async function loadPinStatus() {
+  const res = await api('/api/pin/status');
+  pinCurrentlyEnabled = res.enabled;
+  document.getElementById('toggle-pin').classList.toggle('on', pinCurrentlyEnabled);
+  document.getElementById('pin-change-wrap').style.display = pinCurrentlyEnabled ? 'block' : 'none';
+  document.getElementById('pin-set-form').style.display = 'none';
+  document.getElementById('pin-disable-form').style.display = 'none';
+}
+
+function togglePinEnabled() {
+  if (pinCurrentlyEnabled) {
+    // Show disable form
+    document.getElementById('pin-set-form').style.display = 'none';
+    document.getElementById('pin-disable-form').style.display = 'block';
+    document.getElementById('pin-change-wrap').style.display = 'none';
+  } else {
+    // Show set form (first time, no current PIN needed)
+    showPinSetForm(false);
+  }
+}
+
+function showPinSetForm(requireCurrent) {
+  document.getElementById('pin-current-wrap').style.display = requireCurrent ? 'block' : 'none';
+  document.getElementById('pin-current').value = '';
+  document.getElementById('pin-new').value = '';
+  document.getElementById('pin-confirm').value = '';
+  hideAlert('pin-set-alert');
+  document.getElementById('pin-set-form').style.display = 'block';
+  document.getElementById('pin-disable-form').style.display = 'none';
+  document.getElementById('btn-pin-save').textContent = requireCurrent ? 'Сменить PIN' : 'Установить PIN';
+}
+
+function cancelPinForm() {
+  document.getElementById('pin-set-form').style.display = 'none';
+  document.getElementById('pin-disable-form').style.display = 'none';
+  loadPinStatus();
+}
+
+async function savePin() {
+  const currentPin = document.getElementById('pin-current').value.trim();
+  const newPin     = document.getElementById('pin-new').value.trim();
+  const confirm    = document.getElementById('pin-confirm').value.trim();
+
+  if (!/^\d{4,8}$/.test(newPin)) {
+    showAlert('pin-set-alert', 'PIN должен содержать 4–8 цифр', 'error'); return;
+  }
+  if (newPin !== confirm) {
+    showAlert('pin-set-alert', 'PIN-коды не совпадают', 'error'); return;
+  }
+
+  setLoading('btn-pin-save', true, document.getElementById('btn-pin-save').textContent);
+  const res = await api('/api/pin/set', {
+    method: 'POST',
+    body: JSON.stringify({ current_pin: currentPin, new_pin: newPin }),
+  });
+  setLoading('btn-pin-save', false, pinCurrentlyEnabled ? 'Сменить PIN' : 'Установить PIN');
+
+  if (res.success) {
+    showAlert('pin-set-alert', '✓ PIN установлен', 'success');
+    pinCurrentlyEnabled = true;
+    setTimeout(() => { cancelPinForm(); }, 1200);
+  } else {
+    showAlert('pin-set-alert', res.error || 'Ошибка', 'error');
+  }
+}
+
+async function disablePin() {
+  const pin = document.getElementById('pin-disable-input').value.trim();
+  setLoading('btn-pin-disable', true, 'Отключить PIN');
+  const res = await api('/api/pin/disable', {
+    method: 'POST',
+    body: JSON.stringify({ current_pin: pin }),
+  });
+  setLoading('btn-pin-disable', false, 'Отключить PIN');
+  if (res.success) {
+    showAlert('pin-disable-alert', '✓ PIN отключён', 'success');
+    pinCurrentlyEnabled = false;
+    setTimeout(() => { cancelPinForm(); }, 1000);
+  } else {
+    showAlert('pin-disable-alert', res.error || 'Ошибка', 'error');
+  }
+}
+
+// ================================================================ //
 //  Boot
 // ================================================================ //
 
 async function init() {
+  const pinStatus = await fetch('/api/pin/status').then(r => r.json()).catch(() => ({enabled: false}));
+  if (pinStatus.enabled && !pinStatus.verified) {
+    document.getElementById('pin-overlay').classList.add('visible');
+    return;  // initAfterPin() will be called after successful PIN entry
+  }
+  initAfterPin();
+}
+
+async function initAfterPin() {
   loadCredentials();
   const res = await api('/api/auth/status');
   if (res.logged_in) {
     onLoggedIn(res.user);
   }
 }
-
-init();
 
 init();
 </script>
