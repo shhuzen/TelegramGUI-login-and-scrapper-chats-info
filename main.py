@@ -46,7 +46,8 @@ DEFAULT_CONFIG = {
     "update_mode": "interval",
     "update_interval_hours": 24,
     "update_daily_time": "03:00",
-    "proxy": "",   # e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080
+    "proxy": "",
+    "subscribe_md_path": "",
 }
 
 
@@ -291,6 +292,46 @@ def set_autostart():
         return jsonify({"success": True, "enabled": enable})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+
+# ------------------------------------------------------------------ #
+#  Subscribe from MD
+# ------------------------------------------------------------------ #
+
+
+@app.route("/api/subscribe/preview", methods=["POST"])
+def subscribe_preview():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.json or {}
+    path = (data.get("path") or "").strip()
+    if not path:
+        return jsonify({"error": "Укажите путь к файлу"}), 400
+    # Save path to config
+    cfg = load_config()
+    cfg["subscribe_md_path"] = path
+    save_config(cfg)
+    try:
+        entries = tg.parse_md_file(path)
+        return jsonify({"entries": entries, "count": len(entries)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/subscribe/start", methods=["POST"])
+def subscribe_start():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.json or {}
+    entries = data.get("entries", [])
+    if not entries:
+        return jsonify({"error": "Нет записей"}), 400
+    return jsonify(tg.start_subscribe(entries))
+
+
+@app.route("/api/subscribe/status")
+def subscribe_status():
+    return jsonify(tg.get_subscribe_status())
 
 
 # ------------------------------------------------------------------ #

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import sys
 import threading
 import urllib.request
@@ -392,3 +393,100 @@ class TelegramClientManager:
             chat_id,
             {"status": "not_started", "progress": 0, "total": 0, "file": None, "error": None},
         )
+
+    # ------------------------------------------------------------------ #
+    #  Subscribe from MD file
+    # ------------------------------------------------------------------ #
+
+    def parse_md_file(self, path: str) -> list[dict]:
+        """Extract channel/group entries from a backup MD file."""
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Файл не найден: {path}")
+
+        entries = []
+        # Match markdown links: [Title](url)
+        link_re = re.compile(r'\[([^\]]+)\]\((https?://t\.me/[^\)]+)\)')
+
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                for m in link_re.finditer(line):
+                    title, url = m.group(1), m.group(2)
+                    entries.append({"title": title, "url": url})
+
+        seen = set()
+        unique = []
+        for e in entries:
+            if e["url"] not in seen:
+                seen.add(e["url"])
+                unique.append(e)
+        return unique
+
+    # subscribe_tasks: list of result dicts, status dict
+    _sub_status: dict = {"status": "idle", "done": 0, "total": 0, "results": []}
+
+    def get_subscribe_status(self) -> dict:
+        return self._sub_status
+
+    def start_subscribe(self, entries: list[dict]) -> dict:
+        if self._sub_status.get("status") == "running":
+            return {"success": False, "error": "Подписка уже запущена"}
+
+        self._sub_status = {
+            "status": "running",
+            "done": 0,
+            "total": len(entries),
+            "results": [],
+        }
+        asyncio.run_coroutine_threadsafe(
+            self._subscribe_async(entries), self.loop
+        )
+        return {"success": True}
+
+    async def _subscribe_async(self, entries: list[dict]):
+        from telethon.tl.functions.channels import JoinChannelRequest
+        from telethon.tl.functions.messages import ImportChatInviteRequest
+        from telethon.errors import (
+            UserAlreadyParticipantError, InviteHashExpiredError,
+            ChannelPrivateError, FloodWaitError as FW,
+        )
+        import asyncio as aio
+
+        results = self._sub_status["results"]
+
+        for entry in entries:
+            url: str = entry["url"]
+            title: str = entry["title"]
+            result = {"title": title, "url": url, "status": "", "error": ""}
+
+            try:
+                # Private invite link: t.me/+HASH or t.me/joinchat/HASH
+                if "/+" in url or "/joinchat/" in url:
+                    hash_part = url.split("/+")[-1] if "/+" in url else url.split("/joinchat/")[-1]
+                    await self.client(ImportChatInviteRequest(hash_part))
+                else:
+                    # Public username
+                    username = url.rstrip("/").split("/")[-1]
+                    entity = await self.client.get_entity(username)
+                    await self.client(JoinChannelRequest(entity))
+
+                result["status"] = "joined"
+
+            except UserAlreadyParticipantError:
+                result["status"] = "already"
+            except (ChannelPrivateError, InviteHashExpiredError) as e:
+                result["status"] = "error"
+                result["error"] = "Приватный / ссылка устарела"
+            except FW as e:
+                result["status"] = "error"
+                result["error"] = f"FloodWait {e.seconds}s"
+                await aio.sleep(e.seconds)
+            except Exception as e:
+                result["status"] = "error"
+                result["error"] = str(e)
+
+            results.append(result)
+            self._sub_status["done"] += 1
+            # Small delay to avoid flood limits
+            await aio.sleep(1.5)
+
+        self._sub_status["status"] = "done"
