@@ -180,8 +180,8 @@ input::placeholder { color: var(--subtext); }
 .alert-warn { background: rgba(224,164,77,.15); border: 1px solid var(--warn); color: #e0c87a; }
 
 /* ===== App shell ===== */
-#app { display: none; height: 100vh; overflow: hidden; flex-direction: column; }
-#app.visible { display: flex; }
+#app { display: block; min-height: 100vh; }
+.app-shell { display: flex; height: 100vh; overflow: hidden; flex-direction: column; }
 
 /* ===== Header ===== */
 .app-header {

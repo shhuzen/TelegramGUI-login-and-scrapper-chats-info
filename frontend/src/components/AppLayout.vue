@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="visible">
+  <div class="app-shell">
     <AppHeader :user="store.user" :theme="store.theme" @toggle-theme="toggleTheme" @logout="doLogout" />
     <div class="nav-tabs">
       <div v-for="tab in tabs" :key="tab.id"
