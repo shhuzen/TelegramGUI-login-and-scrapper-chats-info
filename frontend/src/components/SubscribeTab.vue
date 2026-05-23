@@ -2,9 +2,9 @@
   <div class="tab-pane active" style="padding:28px 24px;">
     <div class="section-title">Подписаться из MD файла</div>
 
+    <!-- File loader -->
     <div class="settings-card" style="max-width:600px;">
       <h3>Файл со списком каналов</h3>
-
       <div class="drop-zone" :class="{ dragging }"
            @dragover.prevent="dragging = true"
            @dragleave.prevent="dragging = false"
@@ -21,9 +21,77 @@
           </button>
         </div>
       </div>
-
       <p class="hint" style="margin-top:8px;">Формат: <code>- [Название](https://t.me/...)</code></p>
       <div class="alert alert-error show" v-if="alertMsg">{{ alertMsg }}</div>
+    </div>
+
+    <!-- Schedule card -->
+    <div class="settings-card" style="max-width:600px;">
+      <h3>Режим подписки</h3>
+
+      <!-- Preset pills -->
+      <div class="preset-row">
+        <button v-for="p in presets" :key="p.id"
+                class="preset-pill" :class="{ active: schedule.preset === p.id }"
+                @click="applyPreset(p.id)">
+          <span class="preset-icon">{{ p.icon }}</span>
+          <span class="preset-name">{{ p.name }}</span>
+        </button>
+      </div>
+
+      <!-- Custom fields (always visible, editable) -->
+      <div class="sched-grid">
+        <div class="sched-field">
+          <div class="sched-label">Пачка</div>
+          <div class="sched-input-row">
+            <input type="number" v-model.number="schedule.batchSize" min="0" max="500"
+                   @input="schedule.preset = 'custom'" />
+            <span class="sched-unit">каналов</span>
+          </div>
+          <div class="sched-hint">0 = без деления на пачки</div>
+        </div>
+
+        <div class="sched-field">
+          <div class="sched-label">Пауза между подписками</div>
+          <div class="sched-input-row">
+            <input type="number" v-model.number="schedule.subDelayMin" min="0" max="60"
+                   @input="schedule.preset = 'custom'" style="width:62px;" />
+            <span class="sched-unit">мин</span>
+            <input type="number" v-model.number="schedule.subDelaySec" min="0" max="59"
+                   @input="schedule.preset = 'custom'" style="width:62px;" />
+            <span class="sched-unit">сек</span>
+          </div>
+        </div>
+
+        <div class="sched-field">
+          <div class="sched-label">Пауза между пачками</div>
+          <div class="sched-input-row">
+            <input type="number" v-model.number="schedule.batchDelayHr" min="0" max="24"
+                   @input="schedule.preset = 'custom'" style="width:62px;" />
+            <span class="sched-unit">ч</span>
+            <input type="number" v-model.number="schedule.batchDelayMin" min="0" max="59"
+                   @input="schedule.preset = 'custom'" style="width:62px;" />
+            <span class="sched-unit">мин</span>
+          </div>
+        </div>
+
+        <div class="sched-field">
+          <div class="sched-label">Таймаут на попытку</div>
+          <div class="sched-input-row">
+            <input type="number" v-model.number="schedule.timeoutMin" min="0" max="30"
+                   @input="schedule.preset = 'custom'" style="width:62px;" />
+            <span class="sched-unit">мин</span>
+            <input type="number" v-model.number="schedule.timeoutSec" min="0" max="59"
+                   @input="schedule.preset = 'custom'" style="width:62px;" />
+            <span class="sched-unit">сек</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estimate -->
+      <div class="sched-estimate" v-if="estimateText">
+        <span class="sched-est-icon">🕐</span> {{ estimateText }}
+      </div>
     </div>
 
     <!-- MODAL -->
@@ -43,7 +111,7 @@
                 <span v-else>{{ countLabel }}</span>
               </div>
             </div>
-            <button class="sub-close-btn" @click="closeModal" title="Закрыть">✕</button>
+            <button class="sub-close-btn" @click="closeModal">✕</button>
           </div>
 
           <!-- Table -->
@@ -53,27 +121,27 @@
                 <thead>
                   <tr>
                     <th style="width:36px;">
-                      <input type="checkbox" v-model="selectAll" @change="toggleAll" :disabled="checking" />
+                      <input type="checkbox" v-model="selectAll" @change="toggleAll" :disabled="checking || running" />
                     </th>
                     <th>Название</th>
                     <th>Ссылка</th>
-                    <th style="width:140px;">Статус</th>
+                    <th style="width:150px;">Статус</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(e, i) in entries" :key="i"
                       :class="{ 'row-done': e.subscribed === true || e.runStatus === 'joined' || e.runStatus === 'already' }">
-                    <td><input type="checkbox" v-model="e.checked" :disabled="e.subscribed === true || checking" /></td>
+                    <td><input type="checkbox" v-model="e.checked" :disabled="e.subscribed === true || checking || running" /></td>
                     <td class="entry-title">{{ e.title }}</td>
                     <td><a :href="e.url" target="_blank" class="chat-link">{{ shortUrl(e.url) }}</a></td>
                     <td class="entry-status">
-                      <span v-if="checking && e.subscribed === null" class="estatus estatus-muted">…</span>
-                      <span v-else-if="e.subscribed === true"          class="estatus estatus-ok">✓ Уже подписан</span>
-                      <span v-else-if="e.runStatus === 'joined'"       class="estatus estatus-ok">✓ Подписан</span>
-                      <span v-else-if="e.runStatus === 'already'"      class="estatus estatus-muted">Уже был</span>
-                      <span v-else-if="e.runStatus === 'error'"        class="estatus estatus-err">{{ e.runError || 'Ошибка' }}</span>
-                      <span v-else-if="e.subscribed === null"          class="estatus estatus-muted">приватная</span>
-                      <span v-else                                      class="estatus estatus-muted">—</span>
+                      <span v-if="checking && e.subscribed === null"  class="estatus estatus-muted">…</span>
+                      <span v-else-if="e.subscribed === true"         class="estatus estatus-ok">✓ Уже подписан</span>
+                      <span v-else-if="e.runStatus === 'joined'"      class="estatus estatus-ok">✓ Подписан</span>
+                      <span v-else-if="e.runStatus === 'already'"     class="estatus estatus-muted">Уже был</span>
+                      <span v-else-if="e.runStatus === 'error'"       class="estatus estatus-err">{{ e.runError || 'Ошибка' }}</span>
+                      <span v-else-if="e.subscribed === null"         class="estatus estatus-muted">приватная</span>
+                      <span v-else                                     class="estatus estatus-muted">—</span>
                     </td>
                   </tr>
                 </tbody>
@@ -81,39 +149,39 @@
             </div>
           </div>
 
-          <!-- Progress -->
+          <!-- Progress + countdown -->
           <div v-if="running || subDone > 0" class="sub-progress">
             <div class="sub-progress-row">
-              <span>{{ progressLabel }}</span>
+              <span>{{ statusLabel }}</span>
               <span>{{ subDone }} / {{ subTotal }}</span>
             </div>
             <div class="progress-bar-wrap" style="height:6px;border-radius:3px;">
               <div class="progress-bar" :style="{ width: subTotal ? (subDone / subTotal * 100) + '%' : '0%' }"></div>
             </div>
+            <!-- Countdown -->
+            <div v-if="waitRemaining > 0" class="sub-countdown">
+              <div class="sub-countdown-bar"
+                   :style="{ width: waitTotal ? ((waitTotal - waitRemaining) / waitTotal * 100) + '%' : '0%' }"></div>
+              <span class="sub-countdown-label">
+                {{ waitType === 'batch' ? '⏸ Пауза между пачками' : '⏱ Пауза между подписками' }}
+                — {{ fmtWait(waitRemaining) }}
+              </span>
+            </div>
           </div>
 
           <!-- Footer -->
           <div class="sub-modal-footer">
-            <div class="sub-batch-row">
-              <label class="sub-check-label">
-                <input type="checkbox" v-model="batchMode" :disabled="running" />
-                Постепенная подписка
-              </label>
-              <template v-if="batchMode">
-                <div class="sub-batch-field">
-                  <span>Групп за раз</span>
-                  <input type="number" v-model.number="batchSize" min="1" max="20" :disabled="running" />
-                </div>
-                <div class="sub-batch-field">
-                  <span>Пауза (мин)</span>
-                  <input type="number" v-model.number="batchDelay" min="1" max="1440" :disabled="running" />
-                </div>
-              </template>
+            <div class="sched-summary" v-if="!running">
+              <span class="sched-badge">{{ presetLabel }}</span>
+              <span v-if="estimateText" style="font-size:12px;color:var(--subtext);">{{ estimateText }}</span>
+            </div>
+            <div v-else class="sched-summary">
+              <span class="sched-badge running-badge">● Выполняется</span>
             </div>
             <div style="display:flex;gap:8px;">
               <button class="btn btn-ghost btn-sm" @click="closeModal">Закрыть</button>
               <button class="btn btn-primary btn-sm" :disabled="running || checking" @click="startSubscribe">
-                {{ running ? 'Подписка идёт…' : '▶ Подписаться' }}
+                {{ running ? 'Идёт подписка…' : '▶ Подписаться' }}
               </button>
             </div>
           </div>
@@ -125,45 +193,115 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
 
+// ── File / drag state ──────────────────────────────────────────────
 const filePath = ref('')
 const dragging  = ref(false)
-const loading   = ref(false)   // covers both parse + check phases
-const checking  = ref(false)   // check-subscribed phase inside modal
-const entries   = ref([])
-const selectAll = ref(true)
-const batchMode = ref(false)
-const batchSize = ref(3)
-const batchDelay = ref(30)
-const running   = ref(false)
-const subDone   = ref(0)
-const subTotal  = ref(0)
+const loading   = ref(false)
+const checking  = ref(false)
 const alertMsg  = ref('')
+
+// ── Entries / modal ────────────────────────────────────────────────
+const entries    = ref([])
+const selectAll  = ref(true)
 const modalOpen    = ref(false)
 const modalEntered = ref(false)
+
+// ── Run state ──────────────────────────────────────────────────────
+const running      = ref(false)
+const subDone      = ref(0)
+const subTotal     = ref(0)
+const waitType     = ref('')      // 'sub' | 'batch'
+const waitRemaining= ref(0)
+const waitTotal    = ref(0)
 let poller = null
 
+// ── Schedule ───────────────────────────────────────────────────────
+const schedule = reactive({
+  preset: 'safe',
+  batchSize:     30,
+  subDelayMin:   3,  subDelaySec: 0,
+  batchDelayHr:  2,  batchDelayMin: 0,
+  timeoutMin:    1,  timeoutSec: 0,
+})
+
+const presets = [
+  { id: 'fast',   icon: '⚡', name: 'Быстро',     cfg: { batchSize:0,  subDelayMin:0, subDelaySec:5,  batchDelayHr:0, batchDelayMin:0,  timeoutMin:0, timeoutSec:30 } },
+  { id: 'safe',   icon: '🛡', name: 'Безопасно',  cfg: { batchSize:30, subDelayMin:3, subDelaySec:0,  batchDelayHr:2, batchDelayMin:0,  timeoutMin:1, timeoutSec:0  } },
+  { id: 'slow',   icon: '🐢', name: 'Медленно',   cfg: { batchSize:10, subDelayMin:10,subDelaySec:0,  batchDelayHr:3, batchDelayMin:30, timeoutMin:2, timeoutSec:0  } },
+  { id: 'custom', icon: '⚙️', name: 'Своё',       cfg: null },
+]
+
+function applyPreset(id) {
+  const p = presets.find(x => x.id === id)
+  if (!p || !p.cfg) { schedule.preset = 'custom'; return }
+  schedule.preset = id
+  Object.assign(schedule, p.cfg)
+}
+
+const subDelaySecs   = computed(() => schedule.subDelayMin * 60 + schedule.subDelaySec)
+const batchDelaySecs = computed(() => schedule.batchDelayHr * 3600 + schedule.batchDelayMin * 60)
+const timeoutSecs    = computed(() => Math.max(10, schedule.timeoutMin * 60 + schedule.timeoutSec))
+
+const selectedCount = computed(() => entries.value.filter(e => e.checked).length)
+
+const estimateText = computed(() => {
+  const n = selectedCount.value || entries.value.filter(e => e.subscribed !== true).length
+  if (!n) return ''
+  const bs = schedule.batchSize > 0 ? schedule.batchSize : n
+  const batches = Math.ceil(n / bs)
+  const totalSec = (n - 1) * subDelaySecs.value + (batches - 1) * batchDelaySecs.value
+  if (totalSec < 5) return `~мгновенно для ${n} каналов`
+  return `~${fmtDuration(totalSec)} для ${n} каналов`
+})
+
+const presetLabel = computed(() => {
+  const p = presets.find(x => x.id === schedule.preset)
+  return p ? `${p.icon} ${p.name}` : '⚙️ Своё'
+})
+
 const countLabel = computed(() => {
-  const already   = entries.value.filter(e => e.subscribed === true).length
-  const newCount  = entries.value.length - already
+  const already  = entries.value.filter(e => e.subscribed === true).length
+  const newCount = entries.value.length - already
   return `Найдено: ${entries.value.length} · Уже подписан: ${already} · Новых: ${newCount}`
 })
 
-const progressLabel = computed(() => {
+const statusLabel = computed(() => {
   if (subDone.value >= subTotal.value && subTotal.value > 0) return '✓ Готово'
+  if (waitRemaining.value > 0) return waitType.value === 'batch' ? 'Пауза между пачками' : 'Пауза между подписками'
   return 'Подписка идёт…'
 })
 
+// ── Helpers ────────────────────────────────────────────────────────
 function shortUrl(url) {
   return url.replace('https://t.me/', '@').replace('https://telegram.me/', '@')
+}
+
+function fmtWait(secs) {
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = secs % 60
+  if (h > 0) return `${h}ч ${String(m).padStart(2,'0')}м ${String(s).padStart(2,'0')}с`
+  if (m > 0) return `${m}м ${String(s).padStart(2,'0')}с`
+  return `${s}с`
+}
+
+function fmtDuration(secs) {
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  if (h > 0 && m > 0) return `${h}ч ${m}м`
+  if (h > 0) return `${h}ч`
+  if (m > 0) return `${m}м`
+  return `${secs}с`
 }
 
 function toggleAll() {
   entries.value.forEach(e => { if (e.subscribed !== true) e.checked = selectAll.value })
 }
 
+// ── Modal ──────────────────────────────────────────────────────────
 function openModal() {
   modalOpen.value = true
   modalEntered.value = false
@@ -172,7 +310,7 @@ function openModal() {
 
 function closeModal() {
   if (running.value) {
-    if (!confirm('Подписка ещё идёт. Закрыть? Процесс продолжится на сервере.')) return
+    if (!confirm('Подписка идёт. Закрыть? Процесс продолжится на сервере.')) return
     if (poller) { clearInterval(poller); poller = null }
     running.value = false
   }
@@ -181,13 +319,13 @@ function closeModal() {
 
 function onEsc(e) { if (e.key === 'Escape') closeModal() }
 
+// ── File loading ───────────────────────────────────────────────────
 async function onDrop(e) {
   dragging.value = false
   const file = e.dataTransfer.files[0]
   if (!file) return
-  const text = await file.text()
   filePath.value = file.name
-  await loadContent(text)
+  await loadContent(await file.text())
 }
 
 async function loadPreview() {
@@ -209,12 +347,9 @@ async function loadContent(text) {
 
 async function populateEntries(raw) {
   if (!raw.length) { alertMsg.value = 'Каналы не найдены в файле'; return }
-  // Reset run state for fresh load
   subDone.value = 0; subTotal.value = 0
   entries.value = raw.map(e => ({ ...e, checked: true, subscribed: null, runStatus: '', runError: '' }))
   openModal()
-
-  // Check subscribed — show spinner inside modal, button stays in loading state
   checking.value = true
   const chk = await api('/api/subscribe/check', { method: 'POST', body: JSON.stringify({ entries: raw }) })
   checking.value = false
@@ -226,27 +361,34 @@ async function populateEntries(raw) {
   }
 }
 
+// ── Subscribe ──────────────────────────────────────────────────────
 async function startSubscribe() {
   const selected = entries.value.filter(e => e.checked)
   if (!selected.length) return
   running.value = true; subDone.value = 0; subTotal.value = selected.length
+  waitRemaining.value = 0; waitTotal.value = 0; waitType.value = ''
+
   await api('/api/subscribe/start', {
     method: 'POST',
     body: JSON.stringify({
       entries: selected,
-      batch_mode: batchMode.value,
-      batch_size: batchSize.value,
-      batch_delay_minutes: batchDelay.value,
+      batch_size:          schedule.batchSize,
+      sub_delay_seconds:   subDelaySecs.value,
+      batch_delay_seconds: batchDelaySecs.value,
+      timeout_seconds:     timeoutSecs.value,
     }),
   })
   if (poller) clearInterval(poller)
-  poller = setInterval(pollStatus, 1500)
+  poller = setInterval(pollStatus, 800)
 }
 
 async function pollStatus() {
   const s = await api('/api/subscribe/status')
-  subDone.value  = s.done  || 0
-  subTotal.value = s.total || 0
+  subDone.value      = s.done  || 0
+  subTotal.value     = s.total || 0
+  waitType.value     = s.wait_type      || ''
+  waitRemaining.value= s.wait_remaining || 0
+  waitTotal.value    = s.wait_total     || 0
   ;(s.results || []).forEach(r => {
     const e = entries.value.find(e => e.url === r.url)
     if (e) { e.runStatus = r.status; e.runError = r.error }
@@ -254,13 +396,14 @@ async function pollStatus() {
   if (s.status === 'done') { clearInterval(poller); poller = null; running.value = false }
 }
 
+// ── Mount ──────────────────────────────────────────────────────────
 onMounted(async () => {
   document.addEventListener('keydown', onEsc)
   const [cfg, status] = await Promise.all([api('/api/settings'), api('/api/subscribe/status')])
   if (cfg.subscribe_md_path) filePath.value = cfg.subscribe_md_path
 
-  const activeStatuses = ['running', 'waiting_batch', 'done']
-  if (activeStatuses.includes(status.status) && status.entries?.length) {
+  const active = ['running', 'waiting_sub', 'waiting_batch', 'done']
+  if (active.includes(status.status) && status.entries?.length) {
     entries.value = status.entries.map(e => {
       const r = (status.results || []).find(r => r.url === e.url)
       return { ...e, checked: !r, subscribed: null, runStatus: r?.status || '', runError: r?.error || '' }
@@ -268,9 +411,12 @@ onMounted(async () => {
     subDone.value  = status.done  || 0
     subTotal.value = status.total || 0
     openModal()
-    if (status.status === 'running' || status.status === 'waiting_batch') {
-      running.value = true
-      poller = setInterval(pollStatus, 1500)
+    if (status.status !== 'done') {
+      running.value       = true
+      waitType.value      = status.wait_type      || ''
+      waitRemaining.value = status.wait_remaining || 0
+      waitTotal.value     = status.wait_total     || 0
+      poller = setInterval(pollStatus, 800)
     }
   }
 })

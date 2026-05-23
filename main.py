@@ -510,10 +510,12 @@ def subscribe_start():
     entries = data.get("entries", [])
     if not entries:
         return jsonify({"error": "Нет записей"}), 400
-    batch_mode  = bool(data.get("batch_mode", False))
-    batch_size  = int(data.get("batch_size", 3))
-    batch_delay = int(data.get("batch_delay_minutes", 30))
-    return jsonify(tg.start_subscribe(entries, batch_mode, batch_size, batch_delay))
+    batch_size         = int(data.get("batch_size", 0))
+    sub_delay_seconds  = int(data.get("sub_delay_seconds", 0))
+    batch_delay_seconds= int(data.get("batch_delay_seconds", 0))
+    timeout_seconds    = int(data.get("timeout_seconds", 60))
+    return jsonify(tg.start_subscribe(entries, batch_size, sub_delay_seconds,
+                                      batch_delay_seconds, timeout_seconds))
 
 
 @app.route("/api/subscribe/status")

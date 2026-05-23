@@ -528,9 +528,10 @@ class TelegramClientManager:
     def get_subscribe_status(self) -> dict:
         return self._sub_status
 
-    def start_subscribe(self, entries: list[dict], batch_mode: bool = False,
-                        batch_size: int = 3, batch_delay_minutes: int = 30) -> dict:
-        if self._sub_status.get("status") in ("running", "waiting_batch"):
+    def start_subscribe(self, entries: list[dict], batch_size: int = 0,
+                        sub_delay_seconds: int = 0, batch_delay_seconds: int = 0,
+                        timeout_seconds: int = 60) -> dict:
+        if self._sub_status.get("status") in ("running", "waiting_sub", "waiting_batch"):
             return {"success": False, "error": "Подписка уже запущена"}
 
         self._sub_status = {
@@ -538,17 +539,21 @@ class TelegramClientManager:
             "done": 0,
             "total": len(entries),
             "results": [],
-            "wait_seconds": 0,
+            "wait_type": "",     # "sub" | "batch"
+            "wait_remaining": 0,
+            "wait_total": 0,
             "entries": entries,
         }
         asyncio.run_coroutine_threadsafe(
-            self._subscribe_async(entries, batch_mode, batch_size, batch_delay_minutes),
+            self._subscribe_async(entries, batch_size, sub_delay_seconds,
+                                  batch_delay_seconds, timeout_seconds),
             self.loop,
         )
         return {"success": True}
 
-    async def _subscribe_async(self, entries: list[dict], batch_mode: bool = False,
-                               batch_size: int = 3, batch_delay_minutes: int = 30):
+    async def _subscribe_async(self, entries: list[dict], batch_size: int = 0,
+                               sub_delay_seconds: int = 0, batch_delay_seconds: int = 0,
+                               timeout_seconds: int = 60):
         from telethon.tl.functions.channels import JoinChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import (
@@ -559,31 +564,51 @@ class TelegramClientManager:
 
         results = self._sub_status["results"]
 
+        async def _countdown(wait_type: str, seconds: int):
+            """Update wait_remaining every second while sleeping."""
+            self._sub_status["wait_type"] = wait_type
+            self._sub_status["wait_total"] = seconds
+            self._sub_status["wait_remaining"] = seconds
+            for remaining in range(seconds, 0, -1):
+                self._sub_status["wait_remaining"] = remaining
+                await aio.sleep(1)
+            self._sub_status["wait_type"] = ""
+            self._sub_status["wait_remaining"] = 0
+            self._sub_status["wait_total"] = 0
+
         for idx, entry in enumerate(entries):
-            # Batch pause: before each batch (except the first)
-            if batch_mode and idx > 0 and idx % batch_size == 0:
-                wait_sec = batch_delay_minutes * 60
+            # Batch pause before each batch (except first)
+            if batch_size > 0 and batch_delay_seconds > 0 and idx > 0 and idx % batch_size == 0:
                 self._sub_status["status"] = "waiting_batch"
-                self._sub_status["wait_seconds"] = wait_sec
-                await aio.sleep(wait_sec)
+                await _countdown("batch", batch_delay_seconds)
                 self._sub_status["status"] = "running"
-                self._sub_status["wait_seconds"] = 0
+
+            # Per-subscription delay (skip very first)
+            elif sub_delay_seconds > 0 and idx > 0:
+                self._sub_status["status"] = "waiting_sub"
+                await _countdown("sub", sub_delay_seconds)
+                self._sub_status["status"] = "running"
 
             url: str = entry["url"]
             title: str = entry["title"]
             result = {"title": title, "url": url, "status": "", "error": ""}
 
             try:
-                if "/+" in url or "/joinchat/" in url:
-                    hash_part = url.split("/+")[-1] if "/+" in url else url.split("/joinchat/")[-1]
-                    await self.client(ImportChatInviteRequest(hash_part))
-                else:
-                    username = url.rstrip("/").split("/")[-1]
-                    entity = await self.client.get_entity(username)
-                    await self.client(JoinChannelRequest(entity))
+                async def _join():
+                    if "/+" in url or "/joinchat/" in url:
+                        hash_part = url.split("/+")[-1] if "/+" in url else url.split("/joinchat/")[-1]
+                        await self.client(ImportChatInviteRequest(hash_part))
+                    else:
+                        username = url.rstrip("/").split("/")[-1]
+                        entity = await self.client.get_entity(username)
+                        await self.client(JoinChannelRequest(entity))
 
+                await aio.wait_for(_join(), timeout=float(timeout_seconds))
                 result["status"] = "joined"
 
+            except aio.TimeoutError:
+                result["status"] = "error"
+                result["error"] = f"Таймаут ({timeout_seconds}с)"
             except UserAlreadyParticipantError:
                 result["status"] = "already"
             except (ChannelPrivateError, InviteHashExpiredError):
@@ -591,15 +616,14 @@ class TelegramClientManager:
                 result["error"] = "Приватный / ссылка устарела"
             except FW as e:
                 result["status"] = "error"
-                result["error"] = f"FloodWait {e.seconds}s"
-                await aio.sleep(e.seconds)
+                result["error"] = f"FloodWait {e.seconds}с"
+                await aio.sleep(min(e.seconds, 300))
             except Exception as e:
                 result["status"] = "error"
                 result["error"] = str(e)
 
             results.append(result)
             self._sub_status["done"] += 1
-            await aio.sleep(1.5)
 
         self._sub_status["status"] = "done"
 
