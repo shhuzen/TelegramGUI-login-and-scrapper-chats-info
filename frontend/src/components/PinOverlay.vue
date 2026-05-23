@@ -4,8 +4,8 @@
       <h2>🔒 Telegram Manager</h2>
       <p class="subtitle">Введите PIN-код для доступа</p>
       <div class="pin-dots">
-        <div v-for="i in 8" :key="i" class="pin-dot"
-             :class="{ filled: !errorMode && pinBuffer.length >= i, error: errorMode && i <= 4 }"></div>
+        <div v-for="i in pinLength" :key="i" class="pin-dot"
+             :class="{ filled: !errorMode && pinBuffer.length >= i, error: errorMode }"></div>
       </div>
       <div class="pin-grid">
         <button class="pin-btn" v-for="n in [1,2,3,4,5,6,7,8,9]" :key="n" @click="pinKey(String(n))">{{ n }}</button>
@@ -23,6 +23,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 const emit = defineEmits(['verified'])
 
+const pinLength = ref(4)
 const pinBuffer = ref('')
 const errorMode = ref(false)
 const errorMsg = ref('')
@@ -32,8 +33,9 @@ let lockoutTimer = null
 function pinKey(k) {
   if (lockoutMsg.value) return
   if (k === '') pinBuffer.value = pinBuffer.value.slice(0, -1)
-  else if (pinBuffer.value.length < 8) {
+  else if (pinBuffer.value.length < pinLength.value) {
     pinBuffer.value += k
+    if (pinBuffer.value.length === pinLength.value) pinSubmit()
   }
 }
 
@@ -79,6 +81,10 @@ function onKey(e) {
   else if (e.key === 'Enter') pinSubmit()
 }
 
-onMounted(() => document.addEventListener('keydown', onKey))
+onMounted(async () => {
+  const res = await fetch('/api/pin/status').then(r => r.json()).catch(() => ({}))
+  pinLength.value = res.pin_length || 4
+  document.addEventListener('keydown', onKey)
+})
 onUnmounted(() => { document.removeEventListener('keydown', onKey); clearInterval(lockoutTimer) })
 </script>

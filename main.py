@@ -209,7 +209,8 @@ def pin_status():
     cfg = load_config()
     enabled = bool(cfg.get("pin_enabled"))
     verified = bool(session.get("pin_verified"))
-    return jsonify({"enabled": enabled, "verified": verified})
+    pin_length = int(cfg.get("pin_length", 4)) if enabled else 4
+    return jsonify({"enabled": enabled, "verified": verified, "pin_length": pin_length})
 
 @app.route("/api/pin/verify", methods=["POST"])
 def pin_verify():
@@ -248,6 +249,7 @@ def pin_set():
             return jsonify({"success": False, "error": "Неверный текущий PIN"}), 401
     cfg["pin_hash"] = pin_auth.hash_pin(new_pin)
     cfg["pin_enabled"] = True
+    cfg["pin_length"] = len(new_pin)
     save_config(cfg)
     session["pin_verified"] = True
     session.permanent = True
