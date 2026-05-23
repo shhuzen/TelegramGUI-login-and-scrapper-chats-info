@@ -34,8 +34,11 @@ onMounted(async () => {
   store.theme = saved
   document.body.dataset.theme = saved
 
-  // Check PIN
-  const pinStatus = await fetch('/api/pin/status').then(r => r.json()).catch(() => ({ enabled: false }))
+  // Check PIN — include tab_token if already verified in this tab
+  const token = sessionStorage.getItem('tab_token')
+  const pinStatus = await fetch('/api/pin/status', {
+    headers: token ? { 'X-Tab-Token': token } : {},
+  }).then(r => r.json()).catch(() => ({ enabled: false }))
   if (pinStatus.enabled && !pinStatus.verified) {
     booting.value = false
     needPin.value = true

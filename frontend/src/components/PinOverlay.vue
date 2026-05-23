@@ -21,6 +21,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { setTabToken } from '../api.js'
 const emit = defineEmits(['verified'])
 
 const pinLength = ref(4)
@@ -52,6 +53,7 @@ async function pinSubmit() {
   }).then(r => r.json()).catch(() => ({ success: false, error: 'Ошибка сети' }))
 
   if (res.success) {
+    setTabToken(res.tab_token)
     emit('verified')
   } else {
     errorMode.value = true

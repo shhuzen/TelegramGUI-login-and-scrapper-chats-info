@@ -115,15 +115,41 @@ _startup()
 
 _PIN_EXEMPT = {"/api/pin/status", "/api/pin/verify", "/api/pin/set", "/api/pin/disable", "/api/subscribe/preview-content"}
 
+# In-memory tab tokens: {token: expires_timestamp}
+_tab_tokens: dict = {}
+_TAB_TOKEN_TTL = 12 * 3600  # 12 hours — token lives while browser is open
+
+
+def _issue_tab_token() -> str:
+    import uuid, time
+    token = str(uuid.uuid4())
+    _tab_tokens[token] = time.time() + _TAB_TOKEN_TTL
+    return token
+
+
+def _verify_tab_token(token: str | None) -> bool:
+    import time
+    if not token:
+        return False
+    exp = _tab_tokens.get(token)
+    if not exp:
+        return False
+    if time.time() > exp:
+        _tab_tokens.pop(token, None)
+        return False
+    return True
+
+
 @app.before_request
 def _pin_guard():
     cfg = load_config()
     if not cfg.get("pin_enabled"):
-        return  # PIN off, allow all
+        return
     if request.path in _PIN_EXEMPT or not request.path.startswith("/api/"):
-        return  # exempt
-    if session.get("pin_verified"):
-        return  # already unlocked
+        return
+    token = request.headers.get("X-Tab-Token")
+    if _verify_tab_token(token):
+        return
     return jsonify({"error": "PIN required", "pin_required": True}), 401
 
 # ------------------------------------------------------------------ #
@@ -208,7 +234,8 @@ def logout():
 def pin_status():
     cfg = load_config()
     enabled = bool(cfg.get("pin_enabled"))
-    verified = bool(session.get("pin_verified"))
+    token = request.headers.get("X-Tab-Token")
+    verified = enabled and _verify_tab_token(token)
     pin_length = int(cfg.get("pin_length", 4)) if enabled else 4
     return jsonify({"enabled": enabled, "verified": verified, "pin_length": pin_length})
 
@@ -226,8 +253,7 @@ def pin_verify():
         return jsonify({"success": False, "error": f"Слишком много попыток. Подождите {wait} сек."}), 429
     if pin_auth.verify_pin(pin, cfg.get("pin_hash", "")):
         pin_auth.clear_attempts(ip)
-        session["pin_verified"] = True
-        return jsonify({"success": True})
+        return jsonify({"success": True, "tab_token": _issue_tab_token()})
     pin_auth.record_attempt(ip)
     allowed2, wait2 = pin_auth.check_rate_limit(ip)
     remaining = pin_auth.MAX_ATTEMPTS - len([t for t in pin_auth._attempts[ip]])
@@ -251,9 +277,7 @@ def pin_set():
     cfg["pin_enabled"] = True
     cfg["pin_length"] = len(new_pin)
     save_config(cfg)
-    session["pin_verified"] = True
-    session.permanent = True
-    return jsonify({"success": True})
+    return jsonify({"success": True, "tab_token": _issue_tab_token()})
 
 @app.route("/api/pin/disable", methods=["POST"])
 def pin_disable():
@@ -266,7 +290,8 @@ def pin_disable():
     cfg["pin_enabled"] = False
     cfg["pin_hash"] = ""
     save_config(cfg)
-    session.pop("pin_verified", None)
+    # Invalidate all existing tab tokens
+    _tab_tokens.clear()
     return jsonify({"success": True})
 
 

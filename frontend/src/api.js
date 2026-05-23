@@ -1,8 +1,14 @@
 export async function api(path, opts = {}) {
-  const defaults = { headers: { 'Content-Type': 'application/json' } }
-  const res = await fetch(path, { ...defaults, ...opts, headers: { ...defaults.headers, ...(opts.headers || {}) } })
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  const token = sessionStorage.getItem('tab_token')
+  if (token) headers['X-Tab-Token'] = token
+  const res = await fetch(path, { ...opts, headers })
   const data = await res.json().catch(() => ({}))
   return data
+}
+
+export function setTabToken(token) {
+  if (token) sessionStorage.setItem('tab_token', token)
 }
 
 export function escHtml(s) {

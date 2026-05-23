@@ -111,7 +111,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from '../api.js'
+import { api, setTabToken } from '../api.js'
 
 const cfg = ref({ proxy: '', save_folder: 'backups', backup_filename: 'telegram_chats.md', export_folder: 'exports', update_mode: 'interval', update_interval_hours: 24, update_daily_time: '03:00', auto_backup_enabled: true })
 const proxyFound = ref(false)
@@ -149,7 +149,7 @@ async function savePin() {
   const res = await api('/api/pin/set', { method: 'POST', body: JSON.stringify({ current_pin: pinCurrent.value, new_pin: pinNew.value }) })
   pinAlertOk.value = res.success
   pinAlertMsg.value = res.success ? '✓ PIN установлен' : (res.error || 'Ошибка')
-  if (res.success) setTimeout(loadPinStatus, 1000)
+  if (res.success) { setTabToken(res.tab_token); setTimeout(loadPinStatus, 1000) }
 }
 
 async function disablePin() {
