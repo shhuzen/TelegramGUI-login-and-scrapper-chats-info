@@ -2,7 +2,7 @@
   <div class="tab-pane active" style="padding:28px 24px;">
     <div class="section-title">Подписаться из MD файла</div>
 
-    <div class="settings-card" style="max-width:660px;">
+    <div class="settings-card" style="max-width:600px;">
       <h3>Файл со списком каналов</h3>
 
       <!-- Drop zone -->
@@ -17,85 +17,109 @@
         <div style="display:flex;gap:8px;">
           <input type="text" v-model="filePath" placeholder="C:\backups\telegram_chats.md" style="flex:1;" />
           <button class="btn btn-primary btn-sm" :disabled="previewing" @click="loadPreview">
-            {{ previewing ? '…' : 'Загрузить' }}
+            <span v-if="previewing" class="btn-spinner"></span>
+            {{ previewing ? 'Загрузка…' : 'Загрузить' }}
           </button>
         </div>
       </div>
 
-      <p class="hint" style="margin-top:8px;">Формат: строки вида <code>- [Название](https://t.me/...)</code></p>
-
-      <!-- Batch mode -->
-      <div style="margin-top:12px;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;">
-          <input type="checkbox" v-model="batchMode" />
-          Режим постепенной подписки
-        </label>
-      </div>
-      <div v-if="batchMode" style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;">
-        <div>
-          <label style="font-size:12px;color:var(--subtext);">Групп за раз</label>
-          <input type="number" v-model.number="batchSize" min="1" max="20" style="width:70px;margin-top:4px;" />
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--subtext);">Пауза (мин)</label>
-          <input type="number" v-model.number="batchDelay" min="1" max="1440" style="width:80px;margin-top:4px;" />
-        </div>
-      </div>
-
-      <div class="alert" :class="alertType === 'error' ? 'alert-error show' : 'alert-success show'" v-if="alertMsg">{{ alertMsg }}</div>
+      <p class="hint" style="margin-top:8px;">Формат: <code>- [Название](https://t.me/...)</code></p>
+      <div class="alert alert-error show" v-if="alertMsg">{{ alertMsg }}</div>
     </div>
 
-    <!-- Preview table -->
-    <div v-if="entries.length" style="max-width:760px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <span style="font-size:14px;color:var(--subtext);">{{ countLabel }}</span>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--subtext);cursor:pointer;margin:0;">
-            <input type="checkbox" v-model="selectAll" @change="toggleAll" /> Выбрать все
-          </label>
-          <button class="btn btn-primary btn-sm" :disabled="running" @click="startSubscribe">
-            {{ running ? 'Идёт подписка…' : '▶ Подписаться' }}
-          </button>
-        </div>
-      </div>
+    <!-- MODAL -->
+    <Transition name="sub-fade">
+      <div v-if="modalOpen" class="sub-modal-overlay" @click.self="closeModal">
+        <div class="sub-modal" :class="{ 'modal-entered': modalEntered }">
 
-      <div class="chat-table-wrapper">
-        <table>
-          <thead><tr><th style="width:32px;"></th><th>Название</th><th>Ссылка</th><th>Статус</th></tr></thead>
-          <tbody>
-            <tr v-for="(e, i) in entries" :key="i" :style="e.subscribed === true ? 'opacity:.55' : ''">
-              <td><input type="checkbox" v-model="e.checked" /></td>
-              <td>{{ e.title }}</td>
-              <td><a :href="e.url" target="_blank" class="chat-link">{{ e.url }}</a></td>
-              <td>
-                <span v-if="e.subscribed === true" style="color:var(--success);font-weight:600">✓ Уже подписан</span>
-                <span v-else-if="e.runStatus === 'joined'" style="color:var(--success)">✓ Подписан</span>
-                <span v-else-if="e.runStatus === 'already'" style="color:var(--subtext)">Уже подписан</span>
-                <span v-else-if="e.runStatus === 'error'" style="color:var(--danger)">{{ e.runError }}</span>
-                <span v-else-if="e.subscribed === null" style="color:var(--subtext);font-size:12px">приватная</span>
-                <span v-else style="color:var(--subtext);font-size:12px">—</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+          <!-- Header -->
+          <div class="sub-modal-header">
+            <div>
+              <div class="sub-modal-title">Список каналов</div>
+              <div class="sub-modal-meta">{{ countLabel }}</div>
+            </div>
+            <button class="sub-close-btn" @click="closeModal">✕</button>
+          </div>
 
-      <!-- Progress -->
-      <div v-if="running || subDone > 0" style="margin-top:16px;">
-        <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--subtext);margin-bottom:6px;">
-          <span>{{ progressLabel }}</span>
-          <span>{{ subDone }} / {{ subTotal }}</span>
-        </div>
-        <div class="progress-bar-wrap" style="height:8px;">
-          <div class="progress-bar" :style="{ width: subTotal ? (subDone / subTotal * 100) + '%' : '0%' }"></div>
+          <!-- Table -->
+          <div class="sub-modal-body">
+            <div class="sub-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:36px;">
+                      <input type="checkbox" v-model="selectAll" @change="toggleAll" />
+                    </th>
+                    <th>Название</th>
+                    <th>Ссылка</th>
+                    <th style="width:140px;">Статус</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(e, i) in entries" :key="i"
+                      :class="{ 'row-done': e.subscribed === true || e.runStatus === 'joined' || e.runStatus === 'already' }">
+                    <td><input type="checkbox" v-model="e.checked" :disabled="e.subscribed === true" /></td>
+                    <td class="entry-title">{{ e.title }}</td>
+                    <td><a :href="e.url" target="_blank" class="chat-link">{{ shortUrl(e.url) }}</a></td>
+                    <td class="entry-status">
+                      <span v-if="e.subscribed === true"   class="estatus estatus-ok">✓ Уже подписан</span>
+                      <span v-else-if="e.runStatus === 'joined'"  class="estatus estatus-ok">✓ Подписан</span>
+                      <span v-else-if="e.runStatus === 'already'" class="estatus estatus-muted">Уже был</span>
+                      <span v-else-if="e.runStatus === 'error'"   class="estatus estatus-err">{{ e.runError || 'Ошибка' }}</span>
+                      <span v-else-if="e.subscribed === null"      class="estatus estatus-muted">приватная</span>
+                      <span v-else class="estatus estatus-muted">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Progress bar -->
+          <div v-if="running || subDone > 0" class="sub-progress">
+            <div class="sub-progress-row">
+              <span>{{ progressLabel }}</span>
+              <span>{{ subDone }} / {{ subTotal }}</span>
+            </div>
+            <div class="progress-bar-wrap" style="height:6px;border-radius:3px;">
+              <div class="progress-bar" :style="{ width: subTotal ? (subDone / subTotal * 100) + '%' : '0%' }"></div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="sub-modal-footer">
+            <div class="sub-batch-row">
+              <label class="sub-check-label">
+                <input type="checkbox" v-model="batchMode" />
+                Постепенная подписка
+              </label>
+              <template v-if="batchMode">
+                <div class="sub-batch-field">
+                  <span>Групп за раз</span>
+                  <input type="number" v-model.number="batchSize" min="1" max="20" />
+                </div>
+                <div class="sub-batch-field">
+                  <span>Пауза (мин)</span>
+                  <input type="number" v-model.number="batchDelay" min="1" max="1440" />
+                </div>
+              </template>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-ghost btn-sm" @click="closeModal">Закрыть</button>
+              <button class="btn btn-primary btn-sm" :disabled="running" @click="startSubscribe">
+                {{ running ? 'Подписка…' : '▶ Подписаться' }}
+              </button>
+            </div>
+          </div>
+
         </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { api } from '../api.js'
 
 const filePath = ref('')
@@ -110,22 +134,39 @@ const running = ref(false)
 const subDone = ref(0)
 const subTotal = ref(0)
 const alertMsg = ref('')
-const alertType = ref('error')
+const modalOpen = ref(false)
+const modalEntered = ref(false)
 let poller = null
 
 const countLabel = computed(() => {
   const already = entries.value.filter(e => e.subscribed === true).length
   const newCount = entries.value.length - already
-  return `Найдено: ${entries.value.length}  •  Уже подписан: ${already}  •  Новых: ${newCount}`
+  return `Найдено: ${entries.value.length} · Уже подписан: ${already} · Новых: ${newCount}`
 })
 
 const progressLabel = computed(() => {
-  if (subDone.value >= subTotal.value && subTotal.value > 0) return 'Готово'
-  return 'Подписка…'
+  if (subDone.value >= subTotal.value && subTotal.value > 0) return '✓ Готово'
+  if (running.value) return 'Подписка идёт…'
+  return ''
 })
+
+function shortUrl(url) {
+  return url.replace('https://t.me/', '@').replace('https://telegram.me/', '@')
+}
 
 function toggleAll() {
   entries.value.forEach(e => { if (e.subscribed !== true) e.checked = selectAll.value })
+}
+
+function openModal() {
+  modalOpen.value = true
+  modalEntered.value = false
+  nextTick(() => { setTimeout(() => { modalEntered.value = true }, 10) })
+}
+
+function closeModal() {
+  if (running.value) return
+  modalOpen.value = false
 }
 
 async function onDrop(e) {
@@ -138,11 +179,11 @@ async function onDrop(e) {
 }
 
 async function loadPreview() {
-  if (!filePath.value) { alertType.value = 'error'; alertMsg.value = 'Укажите путь к файлу'; return }
+  if (!filePath.value) { alertMsg.value = 'Укажите путь к файлу'; return }
   previewing.value = true; alertMsg.value = ''
   const res = await api('/api/subscribe/preview', { method: 'POST', body: JSON.stringify({ path: filePath.value }) })
   previewing.value = false
-  if (res.error) { alertType.value = 'error'; alertMsg.value = res.error; return }
+  if (res.error) { alertMsg.value = res.error; return }
   await populateEntries(res.entries || [])
 }
 
@@ -150,13 +191,14 @@ async function previewContent(text) {
   previewing.value = true; alertMsg.value = ''
   const res = await api('/api/subscribe/preview-content', { method: 'POST', body: JSON.stringify({ content: text }) })
   previewing.value = false
-  if (res.error) { alertType.value = 'error'; alertMsg.value = res.error; return }
+  if (res.error) { alertMsg.value = res.error; return }
   await populateEntries(res.entries || [])
 }
 
 async function populateEntries(raw) {
+  if (!raw.length) { alertMsg.value = 'Каналы не найдены в файле'; return }
   entries.value = raw.map(e => ({ ...e, checked: true, subscribed: null, runStatus: '', runError: '' }))
-  // Check subscribed
+  openModal()
   const chk = await api('/api/subscribe/check', { method: 'POST', body: JSON.stringify({ entries: raw }) })
   if (!chk.error) {
     chk.entries.forEach((e, i) => {
@@ -168,7 +210,7 @@ async function populateEntries(raw) {
 
 async function startSubscribe() {
   const selected = entries.value.filter(e => e.checked)
-  if (!selected.length) { alertType.value = 'error'; alertMsg.value = 'Выберите хотя бы один канал'; return }
+  if (!selected.length) return
   running.value = true; subDone.value = 0; subTotal.value = selected.length
   await api('/api/subscribe/start', {
     method: 'POST',
@@ -190,7 +232,23 @@ async function pollStatus() {
 }
 
 onMounted(async () => {
-  const cfg = await api('/api/settings')
+  const [cfg, status] = await Promise.all([api('/api/settings'), api('/api/subscribe/status')])
   if (cfg.subscribe_md_path) filePath.value = cfg.subscribe_md_path
+
+  // Restore state if subscription was running before page reload
+  const activeStatuses = ['running', 'waiting_batch', 'done']
+  if (activeStatuses.includes(status.status) && status.entries?.length) {
+    entries.value = status.entries.map(e => {
+      const r = (status.results || []).find(r => r.url === e.url)
+      return { ...e, checked: !r, subscribed: null, runStatus: r?.status || '', runError: r?.error || '' }
+    })
+    subDone.value = status.done || 0
+    subTotal.value = status.total || 0
+    openModal()
+    if (status.status === 'running' || status.status === 'waiting_batch') {
+      running.value = true
+      poller = setInterval(pollStatus, 1500)
+    }
+  }
 })
 </script>

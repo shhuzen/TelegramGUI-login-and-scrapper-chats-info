@@ -539,6 +539,7 @@ class TelegramClientManager:
             "total": len(entries),
             "results": [],
             "wait_seconds": 0,
+            "entries": entries,
         }
         asyncio.run_coroutine_threadsafe(
             self._subscribe_async(entries, batch_mode, batch_size, batch_delay_minutes),
