@@ -280,7 +280,7 @@ class TelegramClientManager:
     #  Backup to Markdown
     # ------------------------------------------------------------------ #
 
-    def save_chats_to_md(self, folder: str) -> dict:
+    def save_chats_to_md(self, folder: str, filename: str = "telegram_chats.md") -> dict:
         os.makedirs(folder, exist_ok=True)
         try:
             chats = self.get_chats()
@@ -319,7 +319,7 @@ class TelegramClientManager:
                 lines.append(f"{prefix} {chat_line(c).lstrip('- ')}")
             lines.append("\n")
 
-        filepath = os.path.join(folder, "telegram_chats.md")
+        filepath = os.path.join(folder, filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.writelines(lines)
 
@@ -427,8 +427,9 @@ class TelegramClientManager:
     def get_subscribe_status(self) -> dict:
         return self._sub_status
 
-    def start_subscribe(self, entries: list[dict]) -> dict:
-        if self._sub_status.get("status") == "running":
+    def start_subscribe(self, entries: list[dict], batch_mode: bool = False,
+                        batch_size: int = 3, batch_delay_minutes: int = 30) -> dict:
+        if self._sub_status.get("status") in ("running", "waiting_batch"):
             return {"success": False, "error": "Подписка уже запущена"}
 
         self._sub_status = {
@@ -436,13 +437,16 @@ class TelegramClientManager:
             "done": 0,
             "total": len(entries),
             "results": [],
+            "wait_seconds": 0,
         }
         asyncio.run_coroutine_threadsafe(
-            self._subscribe_async(entries), self.loop
+            self._subscribe_async(entries, batch_mode, batch_size, batch_delay_minutes),
+            self.loop,
         )
         return {"success": True}
 
-    async def _subscribe_async(self, entries: list[dict]):
+    async def _subscribe_async(self, entries: list[dict], batch_mode: bool = False,
+                               batch_size: int = 3, batch_delay_minutes: int = 30):
         from telethon.tl.functions.channels import JoinChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import (
@@ -453,18 +457,25 @@ class TelegramClientManager:
 
         results = self._sub_status["results"]
 
-        for entry in entries:
+        for idx, entry in enumerate(entries):
+            # Batch pause: before each batch (except the first)
+            if batch_mode and idx > 0 and idx % batch_size == 0:
+                wait_sec = batch_delay_minutes * 60
+                self._sub_status["status"] = "waiting_batch"
+                self._sub_status["wait_seconds"] = wait_sec
+                await aio.sleep(wait_sec)
+                self._sub_status["status"] = "running"
+                self._sub_status["wait_seconds"] = 0
+
             url: str = entry["url"]
             title: str = entry["title"]
             result = {"title": title, "url": url, "status": "", "error": ""}
 
             try:
-                # Private invite link: t.me/+HASH or t.me/joinchat/HASH
                 if "/+" in url or "/joinchat/" in url:
                     hash_part = url.split("/+")[-1] if "/+" in url else url.split("/joinchat/")[-1]
                     await self.client(ImportChatInviteRequest(hash_part))
                 else:
-                    # Public username
                     username = url.rstrip("/").split("/")[-1]
                     entity = await self.client.get_entity(username)
                     await self.client(JoinChannelRequest(entity))
@@ -473,7 +484,7 @@ class TelegramClientManager:
 
             except UserAlreadyParticipantError:
                 result["status"] = "already"
-            except (ChannelPrivateError, InviteHashExpiredError) as e:
+            except (ChannelPrivateError, InviteHashExpiredError):
                 result["status"] = "error"
                 result["error"] = "Приватный / ссылка устарела"
             except FW as e:
@@ -486,7 +497,6 @@ class TelegramClientManager:
 
             results.append(result)
             self._sub_status["done"] += 1
-            # Small delay to avoid flood limits
             await aio.sleep(1.5)
 
         self._sub_status["status"] = "done"

@@ -42,6 +42,7 @@ scheduler = BackupScheduler(tg)
 CONFIG_FILE = _data_path("config.json")
 DEFAULT_CONFIG = {
     "save_folder": "backups",
+    "backup_filename": "telegram_chats.md",
     "export_folder": "exports",
     "update_mode": "interval",
     "update_interval_hours": 24,
@@ -217,7 +218,7 @@ def get_settings():
 def update_settings():
     data = request.json or {}
     cfg = load_config()
-    for key in {"save_folder", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy"}:
+    for key in {"save_folder", "backup_filename", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy"}:
         if key in data:
             cfg[key] = data[key]
     save_config(cfg)
@@ -326,7 +327,10 @@ def subscribe_start():
     entries = data.get("entries", [])
     if not entries:
         return jsonify({"error": "Нет записей"}), 400
-    return jsonify(tg.start_subscribe(entries))
+    batch_mode  = bool(data.get("batch_mode", False))
+    batch_size  = int(data.get("batch_size", 3))
+    batch_delay = int(data.get("batch_delay_minutes", 30))
+    return jsonify(tg.start_subscribe(entries, batch_mode, batch_size, batch_delay))
 
 
 @app.route("/api/subscribe/status")
@@ -342,7 +346,7 @@ def subscribe_status():
 @app.route("/api/backup/now", methods=["POST"])
 def backup_now():
     cfg = load_config()
-    return jsonify(scheduler.trigger_now(cfg.get("save_folder", "backups")))
+    return jsonify(scheduler.trigger_now(cfg.get("save_folder", "backups"), cfg.get("backup_filename", "telegram_chats.md")))
 
 
 @app.route("/api/backup/status")

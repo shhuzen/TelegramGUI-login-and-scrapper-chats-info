@@ -33,8 +33,9 @@ class BackupScheduler:
         self._apply_schedule(config)
 
     def _apply_schedule(self, config: dict):
-        folder = config.get("save_folder", "backups")
-        mode = config.get("update_mode", "interval")
+        folder   = config.get("save_folder", "backups")
+        filename = config.get("backup_filename", "telegram_chats.md")
+        mode     = config.get("update_mode", "interval")
 
         if mode == "daily":
             time_str = config.get("update_daily_time", "03:00")
@@ -48,25 +49,25 @@ class BackupScheduler:
             self._do_backup,
             trigger=trigger,
             id=JOB_ID,
-            args=[folder],
+            args=[folder, filename],
             replace_existing=True,
         )
         logger.info("Backup scheduled: mode=%s config=%s", mode, config)
 
-    def _do_backup(self, folder: str):
+    def _do_backup(self, folder: str, filename: str = "telegram_chats.md"):
         if not self.tg.is_logged_in():
             logger.warning("Backup skipped: not logged in")
             return
         self._last_run = datetime.now().isoformat()
-        result = self.tg.save_chats_to_md(folder)
+        result = self.tg.save_chats_to_md(folder, filename)
         self._last_result = result
         logger.info("Backup result: %s", result)
 
-    def trigger_now(self, folder: str) -> dict:
+    def trigger_now(self, folder: str, filename: str = "telegram_chats.md") -> dict:
         if not self.tg.is_logged_in():
             return {"success": False, "error": "Не авторизован в Telegram"}
         self._last_run = datetime.now().isoformat()
-        result = self.tg.save_chats_to_md(folder)
+        result = self.tg.save_chats_to_md(folder, filename)
         self._last_result = result
         return result
 

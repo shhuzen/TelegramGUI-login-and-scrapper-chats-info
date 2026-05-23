@@ -595,6 +595,25 @@
           <button class="btn btn-primary btn-sm" id="btn-sub-preview" onclick="subPreview()">Загрузить</button>
         </div>
         <p class="hint">Используй формат из бэкапа: строки вида <code>- [Название](https://t.me/...)</code></p>
+        <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;">
+            <input type="checkbox" id="sub-batch-mode" onchange="subToggleBatchMode()" />
+            Режим постепенной подписки
+          </label>
+        </div>
+        <div id="sub-batch-options" style="display:none;margin-top:12px;display:none;">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <label style="font-size:12px;color:var(--subtext);">Групп за раз</label>
+              <input type="number" id="sub-batch-size" min="1" max="20" value="3" style="width:70px;margin-top:4px;" />
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--subtext);">Пауза между пакетами (мин)</label>
+              <input type="number" id="sub-batch-delay" min="1" max="1440" value="30" style="width:80px;margin-top:4px;" />
+            </div>
+          </div>
+          <p class="hint" style="margin-top:8px;">Подписка будет идти пакетами — например, 3 канала, пауза 30 мин, ещё 3, и так далее.</p>
+        </div>
         <div class="alert" id="sub-alert" style="margin-top:10px;"></div>
       </div>
 
@@ -674,6 +693,8 @@
         <h3>Папки сохранения</h3>
         <label>Папка для бэкапа списка чатов</label>
         <input type="text" id="s-save-folder" placeholder="backups" />
+        <label>Имя файла бэкапа</label>
+        <input type="text" id="s-backup-filename" placeholder="telegram_chats.md" />
         <label>Папка для экспорта истории</label>
         <input type="text" id="s-export-folder" placeholder="exports" />
       </div>
@@ -1118,6 +1139,11 @@ function subToggleAll(checked) {
   document.querySelectorAll('.sub-chk').forEach(c => c.checked = checked);
 }
 
+function subToggleBatchMode() {
+  const on = document.getElementById('sub-batch-mode').checked;
+  document.getElementById('sub-batch-options').style.display = on ? 'block' : 'none';
+}
+
 async function subStart() {
   const selected = subEntries.filter((_, i) => {
     const chk = document.querySelector(`.sub-chk[data-i="${i}"]`);
@@ -1125,10 +1151,19 @@ async function subStart() {
   });
   if (!selected.length) { showAlert('sub-alert', 'Выберите хотя бы один канал'); return; }
 
+  const batchMode = document.getElementById('sub-batch-mode').checked;
+  const batchSize  = parseInt(document.getElementById('sub-batch-size').value) || 3;
+  const batchDelay = parseInt(document.getElementById('sub-batch-delay').value) || 30;
+
   setLoading('btn-sub-start', true, '▶ Подписаться');
   const res = await api('/api/subscribe/start', {
     method: 'POST',
-    body: JSON.stringify({ entries: selected }),
+    body: JSON.stringify({
+      entries: selected,
+      batch_mode: batchMode,
+      batch_size: batchSize,
+      batch_delay_minutes: batchDelay,
+    }),
   });
   setLoading('btn-sub-start', false, '▶ Подписаться');
 
@@ -1163,9 +1198,14 @@ async function subPoll() {
     });
   });
 
+  const labelEl = document.getElementById('sub-prog-label');
   if (s.status === 'done') {
     clearInterval(subPoller);
-    document.getElementById('sub-prog-label').textContent = `Готово: ${done} / ${total}`;
+    labelEl.textContent = `Готово: ${done} / ${total}`;
+  } else if (s.status === 'waiting_batch') {
+    const sec = s.wait_seconds || 0;
+    const min = Math.ceil(sec / 60);
+    labelEl.textContent = `${done} / ${total} — ожидание ${min} мин перед следующим пакетом…`;
   }
 }
 
@@ -1252,8 +1292,9 @@ async function loadSettings() {
   const cfg = await api('/api/settings');
 
   document.getElementById('s-proxy').value          = cfg.proxy || '';
-  document.getElementById('s-save-folder').value    = cfg.save_folder || 'backups';
-  document.getElementById('s-export-folder').value  = cfg.export_folder || 'exports';
+  document.getElementById('s-save-folder').value      = cfg.save_folder || 'backups';
+  document.getElementById('s-backup-filename').value  = cfg.backup_filename || 'telegram_chats.md';
+  document.getElementById('s-export-folder').value    = cfg.export_folder || 'exports';
   document.getElementById('s-interval-hours').value = cfg.update_interval_hours || 24;
   document.getElementById('s-daily-time').value     = cfg.update_daily_time || '03:00';
 
@@ -1286,6 +1327,7 @@ async function saveSettings() {
   const body = {
     proxy:                  document.getElementById('s-proxy').value.trim(),
     save_folder:            document.getElementById('s-save-folder').value.trim() || 'backups',
+    backup_filename:        document.getElementById('s-backup-filename').value.trim() || 'telegram_chats.md',
     export_folder:          document.getElementById('s-export-folder').value.trim() || 'exports',
     update_mode:            mode,
     update_interval_hours:  parseInt(document.getElementById('s-interval-hours').value) || 24,
