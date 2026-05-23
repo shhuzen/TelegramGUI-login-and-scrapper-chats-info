@@ -7,6 +7,13 @@ export default defineConfig({
     outDir: '../templates',
     emptyOutDir: true,
     assetsDir: 'static',
+    rollupOptions: {
+      output: {
+        entryFileNames: 'static/index.js',
+        chunkFileNames: 'static/[name].js',
+        assetFileNames: 'static/[name].[ext]',
+      },
+    },
   },
   base: '/',
 })
