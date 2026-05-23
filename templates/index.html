@@ -34,9 +34,30 @@
       min-height: 100vh;
     }
 
+    /* ===== Boot loader ===== */
+    #boot-screen {
+      position: fixed; inset: 0; z-index: 8888;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+    }
+    #boot-screen .boot-spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    #boot-screen p {
+      color: var(--subtext); font-size: 14px;
+    }
+
     /* ===== Login screen ===== */
     #login-screen {
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
@@ -549,6 +570,12 @@
 <body>
 
 <!-- PIN overlay -->
+<!-- Boot loader (shown until init() resolves) -->
+<div id="boot-screen">
+  <div class="boot-spinner"></div>
+  <p>Загрузка…</p>
+</div>
+
 <div id="pin-overlay">
   <div class="pin-card">
     <h2>🔒 Telegram Manager</h2>
@@ -1698,11 +1725,16 @@ async function disablePin() {
 //  Boot
 // ================================================================ //
 
+function hideBoot() {
+  document.getElementById('boot-screen').style.display = 'none';
+}
+
 async function init() {
   const pinStatus = await fetch('/api/pin/status').then(r => r.json()).catch(() => ({enabled: false}));
   if (pinStatus.enabled && !pinStatus.verified) {
+    hideBoot();
     document.getElementById('pin-overlay').classList.add('visible');
-    return;  // initAfterPin() will be called after successful PIN entry
+    return;  // initAfterPin() called after successful PIN entry
   }
   initAfterPin();
 }
@@ -1710,8 +1742,11 @@ async function init() {
 async function initAfterPin() {
   loadCredentials();
   const res = await api('/api/auth/status');
+  hideBoot();
   if (res.logged_in) {
     onLoggedIn(res.user);
+  } else {
+    document.getElementById('login-screen').style.display = 'flex';
   }
 }
 
