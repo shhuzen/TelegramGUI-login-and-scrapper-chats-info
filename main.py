@@ -149,6 +149,13 @@ def auth_status():
     return jsonify({"logged_in": logged_in, "user": me})
 
 
+@app.route("/api/auth/reconnect", methods=["POST"])
+def reconnect():
+    if not tg.is_logged_in() and tg.client is None:
+        return jsonify({"success": False, "error": "Не авторизован"}), 401
+    return jsonify(tg.reconnect())
+
+
 @app.route("/api/auth/send-code", methods=["POST"])
 def send_code():
     data = request.json or {}

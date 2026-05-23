@@ -129,6 +129,22 @@ class TelegramClientManager:
         except Exception:
             return False
 
+    def reconnect(self) -> dict:
+        """Disconnect and reconnect the existing client — useful after VPN toggle."""
+        if self.client is None:
+            return {"success": False, "error": "Нет активного клиента"}
+        try:
+            self._run(self.client.disconnect(), timeout=10)
+        except Exception:
+            pass
+        try:
+            self._run(self.client.connect(), timeout=20)
+            if self._run(self.client.is_user_authorized(), timeout=10):
+                return {"success": True}
+            return {"success": False, "error": "Подключились, но авторизация потеряна"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def try_restore_session(self) -> bool:
         session_path = f"{SESSION_FILE}.session"
         if not os.path.exists(session_path):

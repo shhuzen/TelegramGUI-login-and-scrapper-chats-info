@@ -6,6 +6,7 @@ import pystray
 from PIL import Image
 from pathlib import Path
 
+import urllib.request
 import notifications
 
 PORT = 5000
@@ -59,6 +60,26 @@ def run_tray(tg_client, get_autostart_fn, set_autostart_fn,
     def status_title(item):
         return "● Подключён" if tg_client.is_logged_in() else "○ Не авторизован"
 
+    def reconnect_tg(icon, item):
+        notifications.notify("Telegram", "Переподключение…")
+        try:
+            req = urllib.request.Request(
+                f"http://localhost:{PORT}/api/auth/reconnect",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                import json
+                result = json.loads(resp.read())
+            if result.get("success"):
+                notifications.notify("Telegram", "✓ Переподключено успешно")
+            else:
+                notifications.notify("Telegram", f"✗ {result.get('error', 'Ошибка')}")
+        except Exception as e:
+            notifications.notify("Telegram", f"✗ Ошибка: {e}")
+        icon.update_menu()
+
     def on_exit(icon, item):
         icon.stop()
 
@@ -66,6 +87,7 @@ def run_tray(tg_client, get_autostart_fn, set_autostart_fn,
         pystray.MenuItem(status_title, None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Открыть в браузере", open_browser, default=True),
+        pystray.MenuItem("Переподключить Telegram", reconnect_tg),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Авто-бэкап чатов", toggle_auto_backup, checked=auto_backup_checked),
         pystray.MenuItem("Запуск с Windows", toggle_autostart, checked=autostart_checked),
