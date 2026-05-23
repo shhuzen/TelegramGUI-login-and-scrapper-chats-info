@@ -34,7 +34,7 @@ os.chdir(_data_path())
 
 app = Flask(
     "",
-    static_url_path="",
+    static_url_path="/static",
     static_folder=_bundle_path("templates", "static"),
     template_folder=_bundle_path("templates"),
 )
@@ -113,7 +113,7 @@ _startup()
 #  PIN guard
 # ------------------------------------------------------------------ #
 
-_PIN_EXEMPT = {"/api/pin/status", "/api/pin/verify", "/api/pin/set", "/api/pin/disable"}
+_PIN_EXEMPT = {"/api/pin/status", "/api/pin/verify", "/api/pin/set", "/api/pin/disable", "/api/subscribe/preview-content"}
 
 @app.before_request
 def _pin_guard():
@@ -146,6 +146,21 @@ def auth_status():
     logged_in = tg.is_logged_in()
     me = tg.get_me() if logged_in else None
     return jsonify({"logged_in": logged_in, "user": me})
+
+
+@app.route("/api/dashboard")
+def dashboard():
+    backup = scheduler.get_status()
+    sub = tg.get_subscribe_status()
+    return jsonify({
+        "connected": tg.is_logged_in(),
+        "backup": backup,
+        "subscribe": {
+            "status": sub["status"],
+            "done": sub["done"],
+            "total": sub["total"],
+        },
+    })
 
 
 @app.route("/api/auth/reconnect", methods=["POST"])
@@ -452,6 +467,21 @@ def subscribe_preview():
     save_config(cfg)
     try:
         entries = tg.parse_md_file(path)
+        return jsonify({"entries": entries, "count": len(entries)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/subscribe/preview-content", methods=["POST"])
+def subscribe_preview_content():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.json or {}
+    content = data.get("content", "")
+    if not content:
+        return jsonify({"error": "Пустое содержимое"}), 400
+    try:
+        entries = tg.parse_md_content(content)
         return jsonify({"entries": entries, "count": len(entries)})
     except Exception as e:
         return jsonify({"error": str(e)}), 400

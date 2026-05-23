@@ -241,6 +241,7 @@ class TelegramClientManager:
                 "last_name": me.last_name or "",
                 "username": me.username,
                 "phone": me.phone,
+                "is_premium": getattr(me, "premium", False),
             }
 
         try:
@@ -510,6 +511,16 @@ class TelegramClientManager:
                 seen.add(e["url"])
                 unique.append(e)
         return unique
+
+    def parse_md_content(self, text: str) -> list[dict]:
+        """Same as parse_md_file but takes a string directly (for drag & drop)."""
+        entries = []
+        link_re = re.compile(r'\[([^\]]+)\]\((https?://t\.me/[^\)]+)\)')
+        for line in text.splitlines():
+            for m in link_re.finditer(line):
+                entries.append({"title": m.group(1), "url": m.group(2)})
+        seen = set()
+        return [e for e in entries if e["url"] not in seen and not seen.add(e["url"])]
 
     # subscribe_tasks: list of result dicts, status dict
     _sub_status: dict = {"status": "idle", "done": 0, "total": 0, "results": []}
