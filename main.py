@@ -3,7 +3,7 @@ import os
 import sys
 import atexit
 import threading
-from datetime import timedelta
+
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file, session
@@ -54,7 +54,6 @@ app.secret_key = _get_or_create_secret_key()
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
 )
 
 tg = TelegramClientManager()
@@ -202,7 +201,6 @@ def pin_verify():
     cfg = load_config()
     if not cfg.get("pin_enabled"):
         session["pin_verified"] = True
-        session.permanent = True
         return jsonify({"success": True})
     data = request.json or {}
     pin = str(data.get("pin", "")).strip()
@@ -213,7 +211,6 @@ def pin_verify():
     if pin_auth.verify_pin(pin, cfg.get("pin_hash", "")):
         pin_auth.clear_attempts(ip)
         session["pin_verified"] = True
-        session.permanent = True
         return jsonify({"success": True})
     pin_auth.record_attempt(ip)
     allowed2, wait2 = pin_auth.check_rate_limit(ip)
