@@ -325,6 +325,54 @@ class TelegramClientManager:
 
         return {"success": True, "file": filepath, "count": len(chats), "timestamp": timestamp}
 
+    def get_chats_csv(self, folder: str) -> str:
+        import csv, io
+        chats = self.get_chats()
+        os.makedirs(folder, exist_ok=True)
+        filepath = os.path.join(folder, "telegram_chats.csv")
+        with open(filepath, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["title", "type", "username", "link", "members_count", "archived"])
+            writer.writeheader()
+            for c in chats:
+                writer.writerow({k: c.get(k, "") for k in writer.fieldnames})
+        return filepath
+
+    def get_chats_xlsx(self, folder: str) -> str:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        chats = self.get_chats()
+        os.makedirs(folder, exist_ok=True)
+        filepath = os.path.join(folder, "telegram_chats.xlsx")
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Telegram Chats"
+
+        headers = ["Название", "Тип", "Username", "Ссылка", "Участников", "Архив"]
+        keys    = ["title",    "type", "username", "link",   "members_count", "archived"]
+
+        header_fill = PatternFill("solid", fgColor="2b91d1")
+        header_font = Font(bold=True, color="FFFFFF")
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+
+        col_widths = [40, 10, 25, 45, 12, 8]
+        for col, w in enumerate(col_widths, 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
+
+        for row_i, c in enumerate(chats, 2):
+            for col_i, key in enumerate(keys, 1):
+                val = c.get(key, "")
+                if isinstance(val, bool):
+                    val = "Да" if val else "Нет"
+                ws.cell(row=row_i, column=col_i, value=val or "")
+
+        wb.save(filepath)
+        return filepath
+
     # ------------------------------------------------------------------ #
     #  Export chat history
     # ------------------------------------------------------------------ #
@@ -397,6 +445,32 @@ class TelegramClientManager:
     # ------------------------------------------------------------------ #
     #  Subscribe from MD file
     # ------------------------------------------------------------------ #
+
+    def check_subscribed(self, entries: list[dict]) -> list[dict]:
+        """For each entry return subscribed=True/False/None (None = private link, can't check)."""
+        async def _collect():
+            usernames: set[str] = set()
+            for archived in (False, True):
+                async for dialog in self.client.iter_dialogs(archived=archived, limit=None):
+                    u = getattr(dialog.entity, "username", None)
+                    if u:
+                        usernames.add(u.lower())
+            return usernames
+
+        try:
+            usernames = self._run(_collect(), timeout=120)
+        except Exception:
+            return [{**e, "subscribed": None} for e in entries]
+
+        result = []
+        for e in entries:
+            url: str = e["url"]
+            if "/+" in url or "/joinchat/" in url:
+                result.append({**e, "subscribed": None})
+            else:
+                username = url.rstrip("/").split("/")[-1].lower()
+                result.append({**e, "subscribed": username in usernames})
+        return result
 
     def parse_md_file(self, path: str) -> list[dict]:
         """Extract channel/group entries from a backup MD file."""

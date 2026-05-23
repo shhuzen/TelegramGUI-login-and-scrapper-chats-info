@@ -575,6 +575,8 @@
         <button class="filter-btn" id="filter-archived" onclick="setFilter('archived', this)">Архив</button>
         <button class="btn btn-primary btn-sm" onclick="loadChats()">↻ Обновить</button>
         <button class="btn btn-success btn-sm" id="btn-save-md" onclick="saveBackupNow()">💾 Сохранить в MD</button>
+        <a class="btn btn-sm" href="/api/chats/export-csv" style="background:var(--surface2);color:var(--text);">⬇ CSV</a>
+        <a class="btn btn-sm" href="/api/chats/export-xlsx" style="background:var(--surface2);color:var(--text);">⬇ Excel</a>
       </div>
 
       <div class="alert" id="chats-backup-alert" style="margin-bottom:12px;"></div>
@@ -1125,7 +1127,7 @@ async function subPreview() {
 
   subEntries = res.entries || [];
   document.getElementById('sub-count-label').textContent =
-    `Найдено каналов/групп: ${subEntries.length}`;
+    `Найдено каналов/групп: ${subEntries.length} — проверка подписок…`;
 
   const tbody = document.getElementById('sub-tbody');
   tbody.innerHTML = subEntries.map((e, i) => `
@@ -1133,11 +1135,45 @@ async function subPreview() {
       <td><input type="checkbox" class="sub-chk" data-i="${i}" checked /></td>
       <td>${escHtml(e.title)}</td>
       <td><a href="${escHtml(e.url)}" target="_blank" class="chat-link">${escHtml(e.url)}</a></td>
-      <td id="sub-st-${i}"><span style="color:var(--subtext);font-size:12px">—</span></td>
+      <td id="sub-st-${i}"><span style="color:var(--subtext);font-size:12px">…</span></td>
     </tr>`).join('');
 
   document.getElementById('sub-preview-wrap').style.display = 'block';
   document.getElementById('sub-progress-wrap').style.display = 'none';
+
+  // Check which are already subscribed
+  const chk = await api('/api/subscribe/check', {
+    method: 'POST',
+    body: JSON.stringify({ entries: subEntries }),
+  });
+  if (!chk.error) {
+    let alreadyCount = 0;
+    (chk.entries || []).forEach((e, i) => {
+      const stEl = document.getElementById(`sub-st-${i}`);
+      const row  = document.getElementById(`sub-row-${i}`);
+      const cb   = document.querySelector(`.sub-chk[data-i="${i}"]`);
+      if (e.subscribed === true) {
+        stEl.innerHTML = '<span style="color:var(--success);font-weight:600">✓ Уже подписан</span>';
+        row.style.opacity = '0.6';
+        cb.checked = false;   // auto-uncheck — skip on subscribe
+        alreadyCount++;
+      } else if (e.subscribed === false) {
+        stEl.innerHTML = '<span style="color:var(--subtext);font-size:12px">—</span>';
+      } else {
+        stEl.innerHTML = '<span style="color:var(--subtext);font-size:12px">приватная</span>';
+      }
+    });
+    const newCount = subEntries.length - alreadyCount;
+    document.getElementById('sub-count-label').textContent =
+      `Найдено: ${subEntries.length}  •  Уже подписан: ${alreadyCount}  •  Новых: ${newCount}`;
+  } else {
+    document.getElementById('sub-count-label').textContent =
+      `Найдено каналов/групп: ${subEntries.length}`;
+    subEntries.forEach((_, i) => {
+      const stEl = document.getElementById(`sub-st-${i}`);
+      if (stEl) stEl.innerHTML = '<span style="color:var(--subtext);font-size:12px">—</span>';
+    });
+  }
 }
 
 function subToggleAll(checked) {

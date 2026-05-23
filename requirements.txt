@@ -7,4 +7,5 @@ PySocks>=1.7
 tgcrypto>=1.2
 Pillow>=10.0
 pystray>=0.19
+openpyxl>=3.1
 pyinstaller>=6.0

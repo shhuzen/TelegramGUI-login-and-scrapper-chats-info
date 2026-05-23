@@ -159,6 +159,33 @@ def get_chats():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/chats/export-csv")
+def export_chats_csv():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    try:
+        cfg = load_config()
+        filepath = tg.get_chats_csv(cfg.get("export_folder", "exports"))
+        return send_file(filepath, as_attachment=True,
+                         download_name=Path(filepath).name, mimetype="text/csv")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/chats/export-xlsx")
+def export_chats_xlsx():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    try:
+        cfg = load_config()
+        filepath = tg.get_chats_xlsx(cfg.get("export_folder", "exports"))
+        return send_file(filepath, as_attachment=True,
+                         download_name=Path(filepath).name,
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ------------------------------------------------------------------ #
 #  Export
 # ------------------------------------------------------------------ #
@@ -318,6 +345,19 @@ def subscribe_preview():
         return jsonify({"entries": entries, "count": len(entries)})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/subscribe/check", methods=["POST"])
+def subscribe_check():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.json or {}
+    entries = data.get("entries", [])
+    try:
+        result = tg.check_subscribed(entries)
+        return jsonify({"entries": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/subscribe/start", methods=["POST"])
