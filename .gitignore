@@ -179,3 +179,5 @@ pyaes-*.tar.gz
 node_modules/
 TelegramManager.exe
 templates/
+templates/static/
+
