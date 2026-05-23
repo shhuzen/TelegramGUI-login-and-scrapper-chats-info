@@ -8,6 +8,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+import notifications
+
 if TYPE_CHECKING:
     from tg_client import TelegramClientManager
 
@@ -33,6 +35,10 @@ class BackupScheduler:
         self._apply_schedule(config)
 
     def _apply_schedule(self, config: dict):
+        if not config.get("auto_backup_enabled", True):
+            logger.info("Auto-backup disabled in config — not scheduling")
+            return
+
         folder   = config.get("save_folder", "backups")
         filename = config.get("backup_filename", "telegram_chats.md")
         mode     = config.get("update_mode", "interval")
@@ -62,6 +68,13 @@ class BackupScheduler:
         result = self.tg.save_chats_to_md(folder, filename)
         self._last_result = result
         logger.info("Backup result: %s", result)
+        if result.get("success"):
+            notifications.notify(
+                "Бэкап завершён",
+                f"Сохранено {result.get('count', '?')} чатов → {result.get('file', '')}",
+            )
+        else:
+            notifications.notify("Ошибка бэкапа", result.get("error", "Неизвестная ошибка"))
 
     def trigger_now(self, folder: str, filename: str = "telegram_chats.md") -> dict:
         if not self.tg.is_logged_in():
@@ -69,6 +82,13 @@ class BackupScheduler:
         self._last_run = datetime.now().isoformat()
         result = self.tg.save_chats_to_md(folder, filename)
         self._last_result = result
+        if result.get("success"):
+            notifications.notify(
+                "Бэкап завершён",
+                f"Сохранено {result.get('count', '?')} чатов → {result.get('file', '')}",
+            )
+        else:
+            notifications.notify("Ошибка бэкапа", result.get("error", "Неизвестная ошибка"))
         return result
 
     def get_status(self) -> dict:

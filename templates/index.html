@@ -729,6 +729,11 @@
 
       <div class="settings-card">
         <h3>Система</h3>
+        <label class="toggle-row" onclick="toggleAutoBackup()">
+          <span>Авто-бэкап по расписанию</span>
+          <div class="toggle" id="toggle-auto-backup"><div class="toggle-knob"></div></div>
+        </label>
+        <p class="hint" style="margin-top:4px;margin-bottom:14px;">Можно также включить/выключить из иконки в трее, не открывая браузер.</p>
         <label class="toggle-row" onclick="toggleAutostart()">
           <span>Запускать вместе с Windows</span>
           <div class="toggle" id="toggle-autostart"><div class="toggle-knob"></div></div>
@@ -1270,6 +1275,12 @@ async function loadAutostart() {
     : 'Автозапуск выключен';
 }
 
+function toggleAutoBackup() {
+  const t = document.getElementById('toggle-auto-backup');
+  const next = !t.classList.contains('on');
+  t.classList.toggle('on', next);
+}
+
 async function toggleAutostart() {
   const next = !autostartEnabled;
   const res = await api('/api/autostart', {
@@ -1295,6 +1306,9 @@ async function loadSettings() {
   document.getElementById('s-save-folder').value      = cfg.save_folder || 'backups';
   document.getElementById('s-backup-filename').value  = cfg.backup_filename || 'telegram_chats.md';
   document.getElementById('s-export-folder').value    = cfg.export_folder || 'exports';
+
+  const autoBackup = cfg.auto_backup_enabled !== false;
+  document.getElementById('toggle-auto-backup').classList.toggle('on', autoBackup);
   document.getElementById('s-interval-hours').value = cfg.update_interval_hours || 24;
   document.getElementById('s-daily-time').value     = cfg.update_daily_time || '03:00';
 
@@ -1332,6 +1346,7 @@ async function saveSettings() {
     update_mode:            mode,
     update_interval_hours:  parseInt(document.getElementById('s-interval-hours').value) || 24,
     update_daily_time:      document.getElementById('s-daily-time').value || '03:00',
+    auto_backup_enabled:    document.getElementById('toggle-auto-backup').classList.contains('on'),
   };
 
   setLoading('btn-save-settings', true, 'Сохранить настройки');

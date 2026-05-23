@@ -500,3 +500,12 @@ class TelegramClientManager:
             await aio.sleep(1.5)
 
         self._sub_status["status"] = "done"
+
+        import notifications
+        joined  = sum(1 for r in results if r["status"] == "joined")
+        already = sum(1 for r in results if r["status"] == "already")
+        errors  = sum(1 for r in results if r["status"] == "error")
+        notifications.notify(
+            "Подписка завершена",
+            f"Новых: {joined}  •  Уже был: {already}  •  Ошибок: {errors}",
+        )

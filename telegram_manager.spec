@@ -10,6 +10,7 @@ a = Analysis(
         ('templates', 'templates'),
     ],
     hiddenimports=[
+        'notifications',
         'pystray',
         'pystray._win32',
         'PIL',

@@ -49,6 +49,7 @@ DEFAULT_CONFIG = {
     "update_daily_time": "03:00",
     "proxy": "",
     "subscribe_md_path": "",
+    "auto_backup_enabled": True,
 }
 
 
@@ -218,7 +219,7 @@ def get_settings():
 def update_settings():
     data = request.json or {}
     cfg = load_config()
-    for key in {"save_folder", "backup_filename", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy"}:
+    for key in {"save_folder", "backup_filename", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy", "auto_backup_enabled"}:
         if key in data:
             cfg[key] = data[key]
     save_config(cfg)
@@ -368,7 +369,7 @@ if __name__ == "__main__":
     flask_thread.start()
 
     from tray import run_tray
-    run_tray(tg, _get_autostart, _set_autostart)
+    run_tray(tg, _get_autostart, _set_autostart, load_config, save_config, scheduler)
 
     # Tray exited — clean shutdown
     scheduler.shutdown()
