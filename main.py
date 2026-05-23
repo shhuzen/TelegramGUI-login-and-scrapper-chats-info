@@ -114,7 +114,7 @@ _startup()
 #  PIN guard
 # ------------------------------------------------------------------ #
 
-_PIN_EXEMPT = {"/api/pin/status", "/api/pin/verify"}
+_PIN_EXEMPT = {"/api/pin/status", "/api/pin/verify", "/api/pin/set", "/api/pin/disable"}
 
 @app.before_request
 def _pin_guard():
@@ -352,7 +352,7 @@ def get_settings():
 def update_settings():
     data = request.json or {}
     cfg = load_config()
-    for key in {"save_folder", "backup_filename", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy", "auto_backup_enabled", "pin_enabled", "pin_hash"}:
+    for key in {"save_folder", "backup_filename", "export_folder", "update_mode", "update_interval_hours", "update_daily_time", "proxy", "auto_backup_enabled"}:
         if key in data:
             cfg[key] = data[key]
     save_config(cfg)
