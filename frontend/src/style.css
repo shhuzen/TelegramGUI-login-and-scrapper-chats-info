@@ -794,6 +794,15 @@ body[data-theme="light"] select { background: #fff; color: #1a2332; }
 .sched-unit { font-size: 12px; color: var(--subtext); }
 .sched-hint { font-size: 11px; color: var(--subtext); opacity: .7; }
 
+.sched-range-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.sched-range-sep {
+  font-size: 12px; color: var(--subtext);
+  padding: 0 4px;
+  font-weight: 600;
+}
+
 .sched-estimate {
   display: flex; align-items: center; gap: 8px;
   font-size: 13px; color: var(--subtext);

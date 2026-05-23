@@ -529,7 +529,9 @@ class TelegramClientManager:
         return self._sub_status
 
     def start_subscribe(self, entries: list[dict], batch_size: int = 0,
-                        sub_delay_seconds: int = 0, batch_delay_seconds: int = 0,
+                        sub_delay_seconds: int = 0,
+                        batch_delay_min_seconds: int = 0,
+                        batch_delay_max_seconds: int = 0,
                         timeout_seconds: int = 60) -> dict:
         if self._sub_status.get("status") in ("running", "waiting_sub", "waiting_batch"):
             return {"success": False, "error": "Подписка уже запущена"}
@@ -539,21 +541,26 @@ class TelegramClientManager:
             "done": 0,
             "total": len(entries),
             "results": [],
-            "wait_type": "",     # "sub" | "batch"
+            "wait_type": "",
             "wait_remaining": 0,
             "wait_total": 0,
+            "next_batch_wait": 0,   # секунд в следующей паузе (показывается заранее)
             "entries": entries,
         }
         asyncio.run_coroutine_threadsafe(
             self._subscribe_async(entries, batch_size, sub_delay_seconds,
-                                  batch_delay_seconds, timeout_seconds),
+                                  batch_delay_min_seconds, batch_delay_max_seconds,
+                                  timeout_seconds),
             self.loop,
         )
         return {"success": True}
 
     async def _subscribe_async(self, entries: list[dict], batch_size: int = 0,
-                               sub_delay_seconds: int = 0, batch_delay_seconds: int = 0,
+                               sub_delay_seconds: int = 0,
+                               batch_delay_min_seconds: int = 0,
+                               batch_delay_max_seconds: int = 0,
                                timeout_seconds: int = 60):
+        import random
         from telethon.tl.functions.channels import JoinChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import (
@@ -565,7 +572,6 @@ class TelegramClientManager:
         results = self._sub_status["results"]
 
         async def _countdown(wait_type: str, seconds: int):
-            """Update wait_remaining every second while sleeping."""
             self._sub_status["wait_type"] = wait_type
             self._sub_status["wait_total"] = seconds
             self._sub_status["wait_remaining"] = seconds
@@ -575,12 +581,22 @@ class TelegramClientManager:
             self._sub_status["wait_type"] = ""
             self._sub_status["wait_remaining"] = 0
             self._sub_status["wait_total"] = 0
+            self._sub_status["next_batch_wait"] = 0
+
+        def _random_batch_delay() -> int:
+            lo = batch_delay_min_seconds
+            hi = max(batch_delay_max_seconds, lo)
+            return int(random.uniform(lo, hi))
 
         for idx, entry in enumerate(entries):
             # Batch pause before each batch (except first)
-            if batch_size > 0 and batch_delay_seconds > 0 and idx > 0 and idx % batch_size == 0:
+            if batch_size > 0 and batch_delay_min_seconds > 0 and idx > 0 and idx % batch_size == 0:
+                wait_sec = _random_batch_delay()
                 self._sub_status["status"] = "waiting_batch"
-                await _countdown("batch", batch_delay_seconds)
+                # Pre-compute next batch delay for display after this one
+                if idx + batch_size < len(entries):
+                    self._sub_status["next_batch_wait"] = _random_batch_delay()
+                await _countdown("batch", wait_sec)
                 self._sub_status["status"] = "running"
 
             # Per-subscription delay (skip very first)

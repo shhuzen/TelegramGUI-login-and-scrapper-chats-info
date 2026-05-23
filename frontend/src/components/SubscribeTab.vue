@@ -63,16 +63,25 @@
           </div>
         </div>
 
-        <div class="sched-field">
-          <div class="sched-label">Пауза между пачками</div>
-          <div class="sched-input-row">
-            <input type="number" v-model.number="schedule.batchDelayHr" min="0" max="24"
-                   @input="schedule.preset = 'custom'" style="width:62px;" />
+        <div class="sched-field" style="grid-column: span 2;">
+          <div class="sched-label">Пауза между пачками <span style="color:var(--accent);font-size:11px;">динамическая</span></div>
+          <div class="sched-range-row">
+            <span class="sched-unit" style="min-width:24px;">от</span>
+            <input type="number" v-model.number="schedule.batchDelayMinHr" min="0" max="24"
+                   @input="schedule.preset = 'custom'" style="width:58px;" />
             <span class="sched-unit">ч</span>
-            <input type="number" v-model.number="schedule.batchDelayMin" min="0" max="59"
-                   @input="schedule.preset = 'custom'" style="width:62px;" />
+            <input type="number" v-model.number="schedule.batchDelayMinMin" min="0" max="59"
+                   @input="schedule.preset = 'custom'" style="width:58px;" />
+            <span class="sched-unit">мин</span>
+            <span class="sched-range-sep">до</span>
+            <input type="number" v-model.number="schedule.batchDelayMaxHr" min="0" max="24"
+                   @input="schedule.preset = 'custom'" style="width:58px;" />
+            <span class="sched-unit">ч</span>
+            <input type="number" v-model.number="schedule.batchDelayMaxMin" min="0" max="59"
+                   @input="schedule.preset = 'custom'" style="width:58px;" />
             <span class="sched-unit">мин</span>
           </div>
+          <div class="sched-hint">Каждая пауза — случайное значение в этом диапазоне</div>
         </div>
 
         <div class="sched-field">
@@ -163,8 +172,11 @@
               <div class="sub-countdown-bar"
                    :style="{ width: waitTotal ? ((waitTotal - waitRemaining) / waitTotal * 100) + '%' : '0%' }"></div>
               <span class="sub-countdown-label">
-                {{ waitType === 'batch' ? '⏸ Пауза между пачками' : '⏱ Пауза между подписками' }}
+                {{ waitType === 'batch' ? '⏸ Пауза между пачками' : '⏱ Пауза' }}
                 — {{ fmtWait(waitRemaining) }}
+                <span v-if="waitType === 'batch' && nextBatchWait > 0" style="opacity:.7;">
+                  · следующая ~{{ fmtWait(nextBatchWait) }}
+                </span>
               </span>
             </div>
           </div>
@@ -213,25 +225,27 @@ const modalEntered = ref(false)
 const running      = ref(false)
 const subDone      = ref(0)
 const subTotal     = ref(0)
-const waitType     = ref('')      // 'sub' | 'batch'
-const waitRemaining= ref(0)
-const waitTotal    = ref(0)
+const waitType      = ref('')      // 'sub' | 'batch'
+const waitRemaining = ref(0)
+const waitTotal     = ref(0)
+const nextBatchWait = ref(0)      // секунд следующей паузы (показывается в статусе)
 let poller = null
 
 // ── Schedule ───────────────────────────────────────────────────────
 const schedule = reactive({
   preset: 'safe',
-  batchSize:     30,
-  subDelayMin:   3,  subDelaySec: 0,
-  batchDelayHr:  2,  batchDelayMin: 0,
-  timeoutMin:    1,  timeoutSec: 0,
+  batchSize:        30,
+  subDelayMin:      3,   subDelaySec:    0,
+  batchDelayMinHr:  2,   batchDelayMinMin: 0,
+  batchDelayMaxHr:  4,   batchDelayMaxMin: 0,
+  timeoutMin:       1,   timeoutSec:     0,
 })
 
 const presets = [
-  { id: 'fast',   icon: '⚡', name: 'Быстро',     cfg: { batchSize:0,  subDelayMin:0, subDelaySec:5,  batchDelayHr:0, batchDelayMin:0,  timeoutMin:0, timeoutSec:30 } },
-  { id: 'safe',   icon: '🛡', name: 'Безопасно',  cfg: { batchSize:30, subDelayMin:3, subDelaySec:0,  batchDelayHr:2, batchDelayMin:0,  timeoutMin:1, timeoutSec:0  } },
-  { id: 'slow',   icon: '🐢', name: 'Медленно',   cfg: { batchSize:10, subDelayMin:10,subDelaySec:0,  batchDelayHr:3, batchDelayMin:30, timeoutMin:2, timeoutSec:0  } },
-  { id: 'custom', icon: '⚙️', name: 'Своё',       cfg: null },
+  { id: 'fast', icon: '⚡', name: 'Быстро',    cfg: { batchSize:0,  subDelayMin:0, subDelaySec:5, batchDelayMinHr:0, batchDelayMinMin:0, batchDelayMaxHr:0, batchDelayMaxMin:0, timeoutMin:0, timeoutSec:30 } },
+  { id: 'safe', icon: '🛡', name: 'Безопасно', cfg: { batchSize:30, subDelayMin:3, subDelaySec:0, batchDelayMinHr:2, batchDelayMinMin:0, batchDelayMaxHr:4, batchDelayMaxMin:0, timeoutMin:1, timeoutSec:0  } },
+  { id: 'slow', icon: '🐢', name: 'Медленно',  cfg: { batchSize:10, subDelayMin:10,subDelaySec:0, batchDelayMinHr:3, batchDelayMinMin:0, batchDelayMaxHr:6, batchDelayMaxMin:0, timeoutMin:2, timeoutSec:0  } },
+  { id: 'custom', icon: '⚙️', name: 'Своё',    cfg: null },
 ]
 
 function applyPreset(id) {
@@ -241,9 +255,10 @@ function applyPreset(id) {
   Object.assign(schedule, p.cfg)
 }
 
-const subDelaySecs   = computed(() => schedule.subDelayMin * 60 + schedule.subDelaySec)
-const batchDelaySecs = computed(() => schedule.batchDelayHr * 3600 + schedule.batchDelayMin * 60)
-const timeoutSecs    = computed(() => Math.max(10, schedule.timeoutMin * 60 + schedule.timeoutSec))
+const subDelaySecs      = computed(() => schedule.subDelayMin * 60 + schedule.subDelaySec)
+const batchDelayMinSecs = computed(() => schedule.batchDelayMinHr * 3600 + schedule.batchDelayMinMin * 60)
+const batchDelayMaxSecs = computed(() => schedule.batchDelayMaxHr * 3600 + schedule.batchDelayMaxMin * 60)
+const timeoutSecs       = computed(() => Math.max(10, schedule.timeoutMin * 60 + schedule.timeoutSec))
 
 const selectedCount = computed(() => entries.value.filter(e => e.checked).length)
 
@@ -252,9 +267,14 @@ const estimateText = computed(() => {
   if (!n) return ''
   const bs = schedule.batchSize > 0 ? schedule.batchSize : n
   const batches = Math.ceil(n / bs)
-  const totalSec = (n - 1) * subDelaySecs.value + (batches - 1) * batchDelaySecs.value
-  if (totalSec < 5) return `~мгновенно для ${n} каналов`
-  return `~${fmtDuration(totalSec)} для ${n} каналов`
+  const avgBatchDelay = (batchDelayMinSecs.value + batchDelayMaxSecs.value) / 2
+  const minSec = (n - 1) * subDelaySecs.value + (batches - 1) * batchDelayMinSecs.value
+  const maxSec = (n - 1) * subDelaySecs.value + (batches - 1) * batchDelayMaxSecs.value
+  if (maxSec < 5) return `~мгновенно для ${n} каналов`
+  if (batchDelayMinSecs.value !== batchDelayMaxSecs.value && batches > 1) {
+    return `~${fmtDuration(minSec)}–${fmtDuration(maxSec)} для ${n} каналов`
+  }
+  return `~${fmtDuration(minSec)} для ${n} каналов`
 })
 
 const presetLabel = computed(() => {
@@ -372,10 +392,11 @@ async function startSubscribe() {
     method: 'POST',
     body: JSON.stringify({
       entries: selected,
-      batch_size:          schedule.batchSize,
-      sub_delay_seconds:   subDelaySecs.value,
-      batch_delay_seconds: batchDelaySecs.value,
-      timeout_seconds:     timeoutSecs.value,
+      batch_size:               schedule.batchSize,
+      sub_delay_seconds:        subDelaySecs.value,
+      batch_delay_min_seconds:  batchDelayMinSecs.value,
+      batch_delay_max_seconds:  batchDelayMaxSecs.value,
+      timeout_seconds:          timeoutSecs.value,
     }),
   })
   if (poller) clearInterval(poller)
@@ -386,9 +407,10 @@ async function pollStatus() {
   const s = await api('/api/subscribe/status')
   subDone.value      = s.done  || 0
   subTotal.value     = s.total || 0
-  waitType.value     = s.wait_type      || ''
-  waitRemaining.value= s.wait_remaining || 0
-  waitTotal.value    = s.wait_total     || 0
+  waitType.value      = s.wait_type      || ''
+  waitRemaining.value = s.wait_remaining || 0
+  waitTotal.value     = s.wait_total     || 0
+  nextBatchWait.value = s.next_batch_wait || 0
   ;(s.results || []).forEach(r => {
     const e = entries.value.find(e => e.url === r.url)
     if (e) { e.runStatus = r.status; e.runError = r.error }
