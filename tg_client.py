@@ -178,6 +178,17 @@ class TelegramClientManager:
                 self._run(self.client.disconnect(), timeout=5)
             except Exception:
                 pass
+            self.client = None
+
+        # Remove stale session file so the new login uses a fresh auth flow.
+        # Without this, Telethon reuses an old session whose phone_code_hash no
+        # longer matches the code Telegram just sent, causing PhoneCodeInvalidError.
+        session_path = f"{SESSION_FILE}.session"
+        if os.path.exists(session_path):
+            try:
+                os.remove(session_path)
+            except OSError:
+                pass
 
         # Create new client synchronously (must NOT be inside async function)
         self.client = self._make_client(SESSION_FILE, effective_api_id, effective_api_hash)
