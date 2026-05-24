@@ -197,6 +197,7 @@ class TelegramClientManager:
             await self.client.connect()
             result = await self.client.send_code_request(phone)
             self._phone_code_hash = result.phone_code_hash
+            print(f"[AUTH] send_code ok  phone={phone}  hash={self._phone_code_hash[:8]}...")
             return {"success": True}
 
         try:
@@ -206,10 +207,12 @@ class TelegramClientManager:
         except TimeoutError:
             return {"success": False, "error": "Не удаётся подключиться к Telegram. Проверьте интернет или попробуйте через VPN/прокси."}
         except Exception as e:
+            print(f"[AUTH] send_code ERROR: {e}")
             return {"success": False, "error": str(e)}
 
     def verify_code(self, code: str) -> dict:
         async def _verify():
+            print(f"[AUTH] verify_code  phone={self.phone}  code={code}  hash={str(self._phone_code_hash)[:8] if self._phone_code_hash else 'NONE'}...")
             try:
                 await self.client.sign_in(
                     self.phone, code, phone_code_hash=self._phone_code_hash
@@ -220,6 +223,7 @@ class TelegramClientManager:
             except PhoneCodeInvalidError:
                 return {"success": False, "error": "Неверный код"}
             except Exception as e:
+                print(f"[AUTH] verify_code EXCEPTION: {type(e).__name__}: {e}")
                 return {"success": False, "error": str(e)}
 
         return self._run(_verify())
