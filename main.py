@@ -113,7 +113,11 @@ _startup()
 #  PIN guard
 # ------------------------------------------------------------------ #
 
-_PIN_EXEMPT = {"/api/pin/status", "/api/pin/verify", "/api/pin/set", "/api/pin/disable", "/api/subscribe/preview-content"}
+_PIN_EXEMPT = {
+    "/api/pin/status", "/api/pin/verify", "/api/pin/set", "/api/pin/disable",
+    "/api/auth/send-code", "/api/auth/verify-code", "/api/auth/verify-2fa", "/api/auth/status",
+    "/api/subscribe/preview-content",
+}
 
 # In-memory tab tokens: {token: expires_timestamp}
 _tab_tokens: dict = {}
