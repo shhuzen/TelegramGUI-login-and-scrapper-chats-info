@@ -172,11 +172,17 @@ class TelegramClientManager:
         effective_api_id   = int(api_id)   if api_id   else _BUILTIN_API_ID
         effective_api_hash = api_hash       if api_hash else _BUILTIN_API_HASH
 
+        # Disconnect old client synchronously before making a new one
+        if self.client is not None:
+            try:
+                self._run(self.client.disconnect(), timeout=5)
+            except Exception:
+                pass
+
+        # Create new client synchronously (must NOT be inside async function)
+        self.client = self._make_client(SESSION_FILE, effective_api_id, effective_api_hash)
+
         async def _send():
-            # Disconnect old client cleanly before creating a new one
-            if self.client and self.client.is_connected():
-                await self.client.disconnect()
-            self.client = self._make_client(SESSION_FILE, effective_api_id, effective_api_hash)
             await self.client.connect()
             result = await self.client.send_code_request(phone)
             self._phone_code_hash = result.phone_code_hash
