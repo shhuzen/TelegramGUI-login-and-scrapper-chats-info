@@ -10,6 +10,7 @@
       <DashboardTab v-if="store.activeTab === 'dashboard'" />
       <ChatsTab v-else-if="store.activeTab === 'chats'" />
       <SubscribeTab v-else-if="store.activeTab === 'subscribe'" />
+      <BlockedTab v-else-if="store.activeTab === 'blocked'" />
       <BackupTab v-else-if="store.activeTab === 'backup'" />
       <SettingsTab v-else-if="store.activeTab === 'settings'" />
     </div>
@@ -23,6 +24,7 @@ import AppHeader from './AppHeader.vue'
 import DashboardTab from './DashboardTab.vue'
 import ChatsTab from './ChatsTab.vue'
 import SubscribeTab from './SubscribeTab.vue'
+import BlockedTab from './BlockedTab.vue'
 import BackupTab from './BackupTab.vue'
 import SettingsTab from './SettingsTab.vue'
 
@@ -30,6 +32,7 @@ const tabs = [
   { id: 'dashboard', label: 'Главная' },
   { id: 'chats', label: 'Чаты' },
   { id: 'subscribe', label: 'Подписки' },
+  { id: 'blocked', label: 'Заблокированные' },
   { id: 'backup', label: 'Резервная копия' },
   { id: 'settings', label: 'Настройки' },
 ]

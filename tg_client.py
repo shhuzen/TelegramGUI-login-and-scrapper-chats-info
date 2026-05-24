@@ -17,7 +17,7 @@ from telethon.errors import (
     PasswordHashInvalidError,
     FloodWaitError,
 )
-from telethon.tl.types import Channel, Chat, User
+from telethon.tl.types import Channel, Chat, User, ChannelForbidden, ChatForbidden
 
 # Suppress Telethon's internal "Attempt N at connecting failed" messages
 logging.getLogger("telethon").setLevel(logging.ERROR)
@@ -685,4 +685,170 @@ class TelegramClientManager:
         notifications.notify(
             "Подписка завершена",
             f"Новых: {joined}  •  Уже был: {already}  •  Ошибок: {errors}",
+        )
+
+    # ------------------------------------------------------------------ #
+    #  Blocked chats (kicked / restricted by Telegram)
+    # ------------------------------------------------------------------ #
+
+    _unsub_status: dict = {"status": "idle", "done": 0, "total": 0, "results": [], "entries": []}
+
+    def get_blocked_chats(self) -> dict:
+        async def _scan():
+            forbidden = []
+            restricted = []
+            seen: set[int] = set()
+
+            for archived in (False, True):
+                async for dialog in self.client.iter_dialogs(archived=archived, limit=None):
+                    entity = dialog.entity
+                    eid = getattr(entity, "id", None)
+                    if eid is None or eid in seen:
+                        continue
+                    seen.add(eid)
+
+                    if isinstance(entity, ChannelForbidden):
+                        forbidden.append({
+                            "id": eid,
+                            "access_hash": getattr(entity, "access_hash", 0) or 0,
+                            "title": getattr(entity, "title", None) or "Без названия",
+                            "type": "channel",
+                            "is_forbidden": True,
+                            "reason": "Нет доступа (кикнули)",
+                        })
+                    elif isinstance(entity, ChatForbidden):
+                        forbidden.append({
+                            "id": eid,
+                            "access_hash": 0,
+                            "title": getattr(entity, "title", None) or "Без названия",
+                            "type": "group",
+                            "is_forbidden": True,
+                            "reason": "Нет доступа (кикнули)",
+                        })
+                    elif isinstance(entity, Channel) and getattr(entity, "restricted", False):
+                        reasons = [r.reason for r in getattr(entity, "restriction_reason", []) or []]
+                        username = getattr(entity, "username", None)
+                        restricted.append({
+                            "id": eid,
+                            "access_hash": getattr(entity, "access_hash", 0) or 0,
+                            "title": dialog.name or "Без названия",
+                            "type": "channel" if getattr(entity, "broadcast", False) else "group",
+                            "username": username,
+                            "url": f"https://t.me/{username}" if username else None,
+                            "is_forbidden": False,
+                            "reason": ", ".join(reasons) or "restricted",
+                        })
+
+            return {"forbidden": forbidden, "restricted": restricted}
+
+        return self._run(_scan(), timeout=300)
+
+    def get_unsubscribe_status(self) -> dict:
+        return self._unsub_status
+
+    def start_unsubscribe(self, entries: list[dict], batch_size: int = 0,
+                          sub_delay_seconds: int = 0,
+                          batch_delay_min_seconds: int = 0,
+                          batch_delay_max_seconds: int = 0) -> dict:
+        if self._unsub_status.get("status") in ("running", "waiting_sub", "waiting_batch"):
+            return {"success": False, "error": "Отписка уже запущена"}
+
+        self._unsub_status = {
+            "status": "running",
+            "done": 0,
+            "total": len(entries),
+            "results": [],
+            "wait_type": "",
+            "wait_remaining": 0,
+            "wait_total": 0,
+            "next_batch_wait": 0,
+            "entries": entries,
+        }
+        asyncio.run_coroutine_threadsafe(
+            self._unsubscribe_async(entries, batch_size, sub_delay_seconds,
+                                    batch_delay_min_seconds, batch_delay_max_seconds),
+            self.loop,
+        )
+        return {"success": True}
+
+    async def _unsubscribe_async(self, entries: list[dict], batch_size: int = 0,
+                                 sub_delay_seconds: int = 0,
+                                 batch_delay_min_seconds: int = 0,
+                                 batch_delay_max_seconds: int = 0):
+        import random
+        from telethon.tl.functions.channels import LeaveChannelRequest
+        from telethon.tl.functions.messages import DeleteHistoryRequest
+        from telethon.errors import FloodWaitError as FW
+        import asyncio as aio
+
+        results = self._unsub_status["results"]
+
+        async def _countdown(wait_type: str, seconds: int):
+            self._unsub_status["wait_type"] = wait_type
+            self._unsub_status["wait_total"] = seconds
+            self._unsub_status["wait_remaining"] = seconds
+            for remaining in range(seconds, 0, -1):
+                self._unsub_status["wait_remaining"] = remaining
+                await aio.sleep(1)
+            self._unsub_status["wait_type"] = ""
+            self._unsub_status["wait_remaining"] = 0
+            self._unsub_status["wait_total"] = 0
+            self._unsub_status["next_batch_wait"] = 0
+
+        def _random_batch_delay() -> int:
+            lo = batch_delay_min_seconds
+            hi = max(batch_delay_max_seconds, lo)
+            return int(random.uniform(lo, hi))
+
+        for idx, entry in enumerate(entries):
+            if batch_size > 0 and batch_delay_min_seconds > 0 and idx > 0 and idx % batch_size == 0:
+                wait_sec = _random_batch_delay()
+                self._unsub_status["status"] = "waiting_batch"
+                if idx + batch_size < len(entries):
+                    self._unsub_status["next_batch_wait"] = _random_batch_delay()
+                await _countdown("batch", wait_sec)
+                self._unsub_status["status"] = "running"
+            elif sub_delay_seconds > 0 and idx > 0:
+                self._unsub_status["status"] = "waiting_sub"
+                await _countdown("sub", sub_delay_seconds)
+                self._unsub_status["status"] = "running"
+
+            result = {"id": entry["id"], "title": entry["title"], "status": "", "error": ""}
+
+            try:
+                if entry.get("is_forbidden"):
+                    # Kicked/banned: just delete the dialog from history
+                    from telethon.tl.types import InputPeerChannel, InputPeerChat
+                    if entry.get("type") == "group" and entry.get("access_hash", 0) == 0:
+                        peer = InputPeerChat(entry["id"])
+                    else:
+                        peer = InputPeerChannel(entry["id"], entry.get("access_hash", 0))
+                    await self.client(DeleteHistoryRequest(peer=peer, max_id=0, just_clear=False, revoke=False))
+                else:
+                    entity = await self.client.get_entity(entry["id"])
+                    if isinstance(entity, Channel):
+                        await self.client(LeaveChannelRequest(entity))
+                    else:
+                        from telethon.tl.functions.messages import DeleteChatUserRequest
+                        await self.client(DeleteChatUserRequest(entry["id"], "me"))
+                result["status"] = "left"
+            except FW as e:
+                result["status"] = "error"
+                result["error"] = f"FloodWait {e.seconds}с"
+                await aio.sleep(min(e.seconds, 300))
+            except Exception as e:
+                result["status"] = "error"
+                result["error"] = str(e)
+
+            results.append(result)
+            self._unsub_status["done"] += 1
+
+        self._unsub_status["status"] = "done"
+
+        import notifications
+        left   = sum(1 for r in results if r["status"] == "left")
+        errors = sum(1 for r in results if r["status"] == "error")
+        notifications.notify(
+            "Отписка завершена",
+            f"Отписан: {left}  •  Ошибок: {errors}",
         )

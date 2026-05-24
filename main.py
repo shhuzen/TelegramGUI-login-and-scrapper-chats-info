@@ -555,6 +555,47 @@ def subscribe_status():
 
 
 # ------------------------------------------------------------------ #
+#  Blocked chats
+# ------------------------------------------------------------------ #
+
+
+@app.route("/api/blocked/scan", methods=["POST"])
+def blocked_scan():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    try:
+        result = tg.get_blocked_chats()
+        return jsonify({
+            "forbidden": result["forbidden"],
+            "restricted": result["restricted"],
+            "count": len(result["forbidden"]) + len(result["restricted"]),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/blocked/unsubscribe/start", methods=["POST"])
+def blocked_unsub_start():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.json or {}
+    entries = data.get("entries", [])
+    if not entries:
+        return jsonify({"error": "Нет записей"}), 400
+    batch_size              = int(data.get("batch_size", 0))
+    sub_delay_seconds       = int(data.get("sub_delay_seconds", 0))
+    batch_delay_min_seconds = int(data.get("batch_delay_min_seconds", 0))
+    batch_delay_max_seconds = int(data.get("batch_delay_max_seconds", batch_delay_min_seconds))
+    return jsonify(tg.start_unsubscribe(entries, batch_size, sub_delay_seconds,
+                                        batch_delay_min_seconds, batch_delay_max_seconds))
+
+
+@app.route("/api/blocked/unsubscribe/status")
+def blocked_unsub_status():
+    return jsonify(tg.get_unsubscribe_status())
+
+
+# ------------------------------------------------------------------ #
 #  Backup
 # ------------------------------------------------------------------ #
 
