@@ -88,10 +88,9 @@ async function verifyCode() {
   loading.value = true
   const res = await api('/api/auth/verify-code', { method: 'POST', body: JSON.stringify({ code: form.value.code }) })
   loading.value = false
-  if (res.success) {
-    if (res.need_2fa) step.value = '2fa'
-    else await finishLogin()
-  } else error2.value = res.error || 'Неверный код'
+  if (res.need_2fa) step.value = '2fa'
+  else if (res.success) await finishLogin()
+  else error2.value = res.error || 'Неверный код'
 }
 
 async function verify2fa() {
