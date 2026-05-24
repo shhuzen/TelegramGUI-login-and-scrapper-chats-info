@@ -196,12 +196,19 @@ class TelegramClientManager:
         async def _send():
             await self.client.connect()
             result = await self.client.send_code_request(phone)
+            # Let Telethon manage the hash in its own internal dict.
+            # We keep a copy only for logging.
             self._phone_code_hash = result.phone_code_hash
-            print(f"[AUTH] send_code ok  phone={phone}  hash={self._phone_code_hash[:8]}...")
-            return {"success": True}
+            code_type = type(result.type).__name__
+            print(f"[AUTH] send_code ok  phone={phone}  type={code_type}  hash={self._phone_code_hash[:8]}...")
+            if "App" in code_type:
+                print("[AUTH] Code sent to TELEGRAM APP (not SMS) — check your Telegram messages")
+            elif "Sms" in code_type:
+                print("[AUTH] Code sent via SMS")
+            return {"success": True, "code_type": code_type}
 
         try:
-            return self._run(_send(), timeout=30)  # максимум 30 сек на весь запрос
+            return self._run(_send(), timeout=30)
         except FloodWaitError as e:
             return {"success": False, "error": f"Слишком много попыток. Подождите {e.seconds} сек."}
         except TimeoutError:
@@ -212,15 +219,19 @@ class TelegramClientManager:
 
     def verify_code(self, code: str) -> dict:
         async def _verify():
-            print(f"[AUTH] verify_code  phone={self.phone}  code={code}  hash={str(self._phone_code_hash)[:8] if self._phone_code_hash else 'NONE'}...")
+            # Do NOT pass phone_code_hash explicitly — Telethon uses its own
+            # internal dict (_phone_code_hash[phone]) set by send_code_request.
+            # Passing it explicitly can cause mismatches in some Telethon versions.
+            print(f"[AUTH] verify_code  phone={self.phone}  code={code}")
             try:
-                await self.client.sign_in(
-                    self.phone, code, phone_code_hash=self._phone_code_hash
-                )
+                await self.client.sign_in(self.phone, code)
+                print("[AUTH] verify_code SUCCESS — logged in")
                 return {"success": True}
             except SessionPasswordNeededError:
+                print("[AUTH] verify_code → need 2FA")
                 return {"success": False, "need_2fa": True}
             except PhoneCodeInvalidError:
+                print("[AUTH] verify_code → PhoneCodeInvalidError")
                 return {"success": False, "error": "Неверный код"}
             except Exception as e:
                 print(f"[AUTH] verify_code EXCEPTION: {type(e).__name__}: {e}")
