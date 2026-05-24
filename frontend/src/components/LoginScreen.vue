@@ -6,13 +6,18 @@
 
       <!-- Step 1 -->
       <div v-if="step === 'credentials'" class="step active">
-        <label>API ID <span style="color:var(--subtext);font-size:11px;">(необязательно)</span></label>
-        <input v-model="form.apiId" type="text" placeholder="2040" />
-        <label>API Hash <span style="color:var(--subtext);font-size:11px;">(необязательно)</span></label>
-        <input v-model="form.apiHash" type="text" placeholder="Встроенный" />
         <label>Номер телефона</label>
         <input v-model="form.phone" type="tel" placeholder="+7..." @keydown.enter="sendCode" />
-        <p class="hint">API ID и Hash необязательны — используются встроенные credentials.<br>Своё приложение: <a href="https://my.telegram.org" target="_blank">my.telegram.org</a></p>
+        <details style="margin-top:14px;">
+          <summary style="cursor:pointer;font-size:13px;color:var(--subtext);user-select:none;">Своё приложение (API ID / Hash)</summary>
+          <div style="margin-top:10px;">
+            <label>API ID</label>
+            <input v-model="form.apiId" type="text" placeholder="12345678" />
+            <label style="margin-top:10px;">API Hash</label>
+            <input v-model="form.apiHash" type="text" placeholder="abcdef1234567890abcdef1234567890" />
+            <p class="hint" style="margin-top:6px;">Получить на <a href="https://my.telegram.org" target="_blank">my.telegram.org</a> → API development tools. Если не заполнено — используются встроенные.</p>
+          </div>
+        </details>
         <div class="alert alert-error" :class="{show: !!error1}">{{ error1 }}</div>
         <button class="btn btn-primary" style="width:100%;margin-top:20px;" :disabled="loading" @click="sendCode">
           {{ loading ? 'Отправка…' : 'Получить код' }}
