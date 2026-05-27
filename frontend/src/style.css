@@ -838,3 +838,15 @@ body[data-theme="light"] select { background: #fff; color: #1a2332; }
   font-size: 11px; color: var(--text); font-weight: 500;
   white-space: nowrap;
 }
+
+/* ===== Search highlight ===== */
+.hl {
+  background: rgba(255, 200, 0, .35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  font-style: normal;
+}
+[data-theme="dark"] .hl {
+  background: rgba(255, 200, 0, .22);
+}
