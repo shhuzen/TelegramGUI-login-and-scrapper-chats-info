@@ -497,7 +497,8 @@ class TelegramClientManager:
     def get_full_export_status(self) -> dict:
         return self._full_export_status
 
-    def start_full_export(self, chat_configs: list, export_folder: str) -> dict:
+    def start_full_export(self, chat_configs: list, md_folder: str, media_folder: str,
+                          export_json: bool = False, export_html: bool = False) -> dict:
         if self._full_export_status.get("status") == "running":
             return {"success": False, "error": "Экспорт уже запущен"}
         self._full_export_status = {
@@ -513,12 +514,14 @@ class TelegramClientManager:
             "error": "",
         }
         asyncio.run_coroutine_threadsafe(
-            self._full_export_async(chat_configs, export_folder),
+            self._full_export_async(chat_configs, md_folder, media_folder, export_json, export_html),
             self.loop,
         )
         return {"success": True}
 
-    async def _full_export_async(self, chat_configs: list, export_folder: str):
+    async def _full_export_async(self, chat_configs: list, md_folder: str, media_folder: str,
+                                  export_json: bool = False, export_html: bool = False):
+        import json as _json
         from datetime import datetime, timezone
         from telethon.tl.types import (
             MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage,
@@ -540,8 +543,12 @@ class TelegramClientManager:
                 "current_media": 0,
             })
 
-            safe_title = re.sub(r"[^\w\s\-]", "", title).strip()[:60] or str(chat_id)
-            chat_folder = os.path.join(export_folder, safe_title)
+            # Preserve Unicode (Cyrillic etc.), strip only filesystem-unsafe chars
+            safe_title = re.sub(r'[/\\:*?"<>|\x00]', '', title).strip().strip('.')[:80] or str(chat_id)
+            # MD files go into md_folder/safe_title/
+            chat_md_dir   = os.path.join(os.path.abspath(md_folder),    safe_title)
+            # Media files go into media_folder/safe_title/
+            chat_media_dir = os.path.join(os.path.abspath(media_folder), safe_title)
 
             result = {
                 "id": chat_id,
@@ -549,16 +556,20 @@ class TelegramClientManager:
                 "status": "running",
                 "messages": 0,
                 "media_files": 0,
-                "folder": chat_folder,
+                "md_folder": chat_md_dir,
+                "media_folder": chat_media_dir,
+                "folder": chat_md_dir,   # kept for backward-compat with "open folder" button
                 "error": "",
             }
             self._full_export_status["results"].append(result)
 
             try:
-                # create media subdirectories
+                os.makedirs(chat_md_dir, exist_ok=True)
+
+                # create media subdirectories inside chat_media_dir
                 media_dirs: dict[str, str] = {}
                 for d in ("photos", "videos", "voice", "audio", "stickers", "gif", "documents", "other"):
-                    p = os.path.join(chat_folder, d)
+                    p = os.path.join(chat_media_dir, d)
                     os.makedirs(p, exist_ok=True)
                     media_dirs[d] = p
 
@@ -591,10 +602,17 @@ class TelegramClientManager:
                             except Exception:
                                 pass
 
-                md_path = os.path.join(chat_folder, "chat.md")
+                md_path = os.path.join(chat_md_dir, f"{safe_title}.md")
                 msg_cache: dict = {}
                 count = 0
                 media_count = 0
+                messages_data = []   # for JSON/HTML export
+
+                export_start = cfg.get("date_from", "") or ""
+                export_end   = cfg.get("date_to",   "") or datetime.now().strftime("%Y-%m-%d")
+                if range_type == "all":
+                    export_start = "начало"
+                    export_end   = datetime.now().strftime("%Y-%m-%d")
 
                 with open(md_path, "w", encoding="utf-8") as f:
                     # ── Header ──────────────────────────────────────
@@ -602,11 +620,6 @@ class TelegramClientManager:
                     if link:
                         f.write(f"**Ссылка:** {link}\n\n")
                     f.write(f"**ID чата:** `{chat_id}`\n\n")
-                    export_start = cfg.get("date_from", "") or ""
-                    export_end   = cfg.get("date_to",   "") or datetime.now().strftime("%Y-%m-%d")
-                    if range_type == "all":
-                        export_start = "начало"
-                        export_end   = datetime.now().strftime("%Y-%m-%d")
                     f.write(f"**Дата начала экспорта:** {export_start}\n\n")
                     f.write(f"**Дата окончания экспорта:** {export_end}\n\n")
                     f.write(f"**Сообщений в чате:** {total_msgs}\n\n")
@@ -647,10 +660,7 @@ class TelegramClientManager:
 
                         date_str = msg.date.strftime("%Y-%m-%d %H:%M:%S") if msg.date else ""
 
-                        f.write(f"## {sender_name}\n\n")
-                        f.write(f"Дата: {date_str}\n\n")
-
-                        # forwarded
+                        fwd_name = ""
                         if msg.fwd_from:
                             fwd_name = getattr(msg.fwd_from, "from_name", None) or ""
                             if not fwd_name and msg.forward and msg.forward.sender:
@@ -660,34 +670,56 @@ class TelegramClientManager:
                                     fwd_name = " ".join(p for p in parts if p)
                                 else:
                                     fwd_name = getattr(s, "title", "")
-                            if fwd_name:
-                                f.write(f"> Переслано от: {fwd_name}\n\n")
 
-                        # reply
+                        reply_snippet = ""
                         if msg.reply_to and hasattr(msg.reply_to, "reply_to_msg_id"):
                             reply_id = msg.reply_to.reply_to_msg_id
                             cached = msg_cache.get(reply_id)
                             if cached:
-                                snippet = cached["text"][:150].replace("\n", " ")
-                                ellipsis = "…" if len(cached["text"]) > 150 else ""
-                                f.write(f"> Ответ на сообщение:\n> {snippet}{ellipsis}\n\n")
-                            else:
-                                f.write("> Ответ на сообщение\n\n")
+                                reply_snippet = cached["text"][:150].replace("\n", " ")
+                                if len(cached["text"]) > 150:
+                                    reply_snippet += "…"
 
-                        # text
                         text = msg.text or ""
-                        if text:
-                            f.write(f"{text}\n\n")
 
-                        # media
+                        media_line = ""
+                        media_rel  = ""
                         if msg.media:
-                            md_line = await self._export_media_line(msg, media_dirs, msg.id)
-                            if md_line:
-                                f.write(md_line)
+                            media_line = await self._export_media_line(msg, media_dirs, msg.id, chat_md_dir)
+                            if media_line:
                                 media_count += 1
                                 self._full_export_status["current_media"] = media_count
+                                # extract relative path for JSON (first Markdown link)
+                                import re as _re
+                                m2 = _re.search(r'\]\(([^)]+)\)', media_line) or _re.search(r'src="([^"]+)"', media_line)
+                                media_rel = m2.group(1) if m2 else ""
 
+                        # ── write MD ─────────────────────────────────
+                        f.write(f"## {sender_name}\n\n")
+                        f.write(f"Дата: {date_str}\n\n")
+                        if fwd_name:
+                            f.write(f"> Переслано от: {fwd_name}\n\n")
+                        if reply_snippet:
+                            f.write(f"> Ответ на сообщение:\n> {reply_snippet}\n\n")
+                        elif msg.reply_to and hasattr(msg.reply_to, "reply_to_msg_id"):
+                            f.write("> Ответ на сообщение\n\n")
+                        if text:
+                            f.write(f"{text}\n\n")
+                        if media_line:
+                            f.write(media_line)
                         f.write("---\n\n")
+
+                        # ── accumulate data for JSON/HTML ─────────────
+                        if export_json or export_html:
+                            messages_data.append({
+                                "id": msg.id,
+                                "date": date_str,
+                                "sender": sender_name,
+                                "forwarded_from": fwd_name or None,
+                                "reply_to_snippet": reply_snippet or None,
+                                "text": text,
+                                "media": media_rel or None,
+                            })
 
                         # update reply cache
                         msg_cache[msg.id] = {
@@ -696,6 +728,24 @@ class TelegramClientManager:
                         }
                         if len(msg_cache) > 5000:
                             msg_cache.pop(next(iter(msg_cache)))
+
+                # ── JSON export ───────────────────────────────────────
+                if export_json:
+                    json_path = os.path.join(chat_md_dir, f"{safe_title}.json")
+                    with open(json_path, "w", encoding="utf-8") as jf:
+                        _json.dump({
+                            "id": chat_id,
+                            "title": title,
+                            "link": link,
+                            "total": total_msgs,
+                            "exported": count,
+                            "messages": messages_data,
+                        }, jf, ensure_ascii=False, indent=2)
+
+                # ── HTML export ───────────────────────────────────────
+                if export_html:
+                    html_path = os.path.join(chat_md_dir, f"{safe_title}.html")
+                    self._write_export_html(html_path, title, link, chat_id, total_msgs, export_start, export_end, messages_data)
 
                 result.update({"status": "done", "messages": count, "media_files": media_count})
 
@@ -710,8 +760,72 @@ class TelegramClientManager:
         errs  = sum(1 for r in self._full_export_status["results"] if r["status"] == "error")
         notifications.notify("Экспорт завершён", f"Готово: {done}  •  Ошибок: {errs}")
 
-    async def _export_media_line(self, msg, media_dirs: dict, msg_id: int) -> str:
-        """Download media from msg and return the Markdown/HTML line to embed it."""
+    def _write_export_html(self, html_path: str, title: str, link, chat_id: int,
+                           total_msgs: int, export_start: str, export_end: str,
+                           messages_data: list):
+        import html as _html
+        css = """
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1c2026;color:#e8ecf1;margin:0;padding:0;}
+.header{background:#242d38;padding:20px 32px;border-bottom:1px solid #2e3a46;}
+.header h1{margin:0 0 6px;font-size:22px;} .header .meta{color:#8a9bac;font-size:13px;}
+.header a{color:#5288c1;text-decoration:none;}
+.messages{max-width:800px;margin:0 auto;padding:24px 16px;}
+.msg{background:#242d38;border-radius:10px;padding:14px 16px;margin-bottom:12px;}
+.msg-header{display:flex;justify-content:space-between;margin-bottom:6px;}
+.sender{font-weight:600;color:#5288c1;font-size:14px;}
+.date{color:#8a9bac;font-size:12px;}
+.fwd{color:#8a9bac;font-size:12px;font-style:italic;margin-bottom:6px;}
+.reply{background:#1c2026;border-left:3px solid #5288c1;padding:6px 10px;border-radius:4px;font-size:12px;color:#8a9bac;margin-bottom:8px;}
+.text{white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.55;}
+.media img{max-width:100%;border-radius:8px;margin-top:8px;}
+.media video,.media audio{max-width:100%;margin-top:8px;}
+.media a{color:#5288c1;}
+"""
+        def esc(s): return _html.escape(s or "")
+
+        rows = []
+        for m in messages_data:
+            fwd = f'<div class="fwd">Переслано от: {esc(m["forwarded_from"])}</div>' if m.get("forwarded_from") else ""
+            reply = f'<div class="reply">↩ {esc(m["reply_to_snippet"])}</div>' if m.get("reply_to_snippet") else ""
+            text  = f'<div class="text">{esc(m["text"])}</div>' if m.get("text") else ""
+            media = ""
+            if m.get("media"):
+                mp = esc(m["media"])
+                if mp.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                    media = f'<div class="media"><img src="{mp}" loading="lazy" /></div>'
+                elif mp.endswith((".mp4", ".webm")):
+                    media = f'<div class="media"><video controls><source src="{mp}"></video></div>'
+                elif mp.endswith((".ogg", ".mp3", ".m4a")):
+                    media = f'<div class="media"><audio controls><source src="{mp}"></audio></div>'
+                else:
+                    media = f'<div class="media"><a href="{mp}">📄 {mp}</a></div>'
+            rows.append(f"""<div class="msg">
+  <div class="msg-header"><span class="sender">{esc(m["sender"])}</span><span class="date">{esc(m["date"])}</span></div>
+  {fwd}{reply}{text}{media}
+</div>""")
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title>
+<style>{css}</style></head>
+<body>
+<div class="header">
+  <h1>{esc(title)}</h1>
+  <div class="meta">
+    {'<a href="' + esc(link) + '">' + esc(link) + '</a> · ' if link else ''}
+    ID: {chat_id} · {total_msgs} сообщений · Период: {esc(export_start)} — {esc(export_end)}
+  </div>
+</div>
+<div class="messages">
+{''.join(rows)}
+</div>
+</body></html>"""
+        with open(html_path, "w", encoding="utf-8") as hf:
+            hf.write(html_content)
+
+    async def _export_media_line(self, msg, media_dirs: dict, msg_id: int, md_dir: str) -> str:
+        """Download media from msg and return the Markdown line to embed it."""
         from telethon.tl.types import (
             MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage,
             MessageMediaGeo, MessageMediaPoll, MessageMediaContact,
@@ -719,6 +833,9 @@ class TelegramClientManager:
             DocumentAttributeSticker, DocumentAttributeAnimated,
             DocumentAttributeFilename,
         )
+
+        def _rel(abs_path: str) -> str:
+            return os.path.relpath(abs_path, md_dir).replace("\\", "/")
 
         media = msg.media
 
@@ -748,7 +865,7 @@ class TelegramClientManager:
             full_path = os.path.join(media_dirs["photos"], filename)
             try:
                 await self.client.download_media(msg, file=full_path)
-                return f"![Фото](photos/{filename})\n\n"
+                return f"![Фото]({_rel(full_path)})\n\n"
             except Exception:
                 return "📷 *[фото — ошибка загрузки]*\n\n"
 
@@ -773,7 +890,7 @@ class TelegramClientManager:
                 fp = os.path.join(media_dirs["stickers"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f"![Стикер](stickers/{fn})\n\n"
+                    return f"![Стикер]({_rel(fp)})\n\n"
                 except Exception:
                     return "🎭 *[стикер — ошибка]*\n\n"
 
@@ -782,7 +899,7 @@ class TelegramClientManager:
                 fp = os.path.join(media_dirs["gif"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f"![GIF](gif/{fn})\n\n"
+                    return f"![GIF]({_rel(fp)})\n\n"
                 except Exception:
                     return "🎞 *[GIF — ошибка]*\n\n"
 
@@ -791,7 +908,7 @@ class TelegramClientManager:
                 fp = os.path.join(media_dirs["videos"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f'<video controls width="800">\n  <source src="videos/{fn}">\n</video>\n\n'
+                    return f'<video controls width="800">\n  <source src="{_rel(fp)}">\n</video>\n\n'
                 except Exception:
                     return "🎥 *[видео — ошибка]*\n\n"
 
@@ -800,7 +917,7 @@ class TelegramClientManager:
                 fp = os.path.join(media_dirs["voice"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f'<audio controls>\n  <source src="voice/{fn}">\n</audio>\n\n'
+                    return f'<audio controls>\n  <source src="{_rel(fp)}">\n</audio>\n\n'
                 except Exception:
                     return "🎙 *[голосовое — ошибка]*\n\n"
 
@@ -810,7 +927,7 @@ class TelegramClientManager:
                 fp = os.path.join(media_dirs["audio"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f'<audio controls>\n  <source src="audio/{fn}">\n</audio>\n\n'
+                    return f'<audio controls>\n  <source src="{_rel(fp)}">\n</audio>\n\n'
                 except Exception:
                     return "🎵 *[аудио — ошибка]*\n\n"
 
@@ -825,7 +942,7 @@ class TelegramClientManager:
             try:
                 await self.client.download_media(msg, file=fp)
                 display = orig_fn or fn
-                return f"[📄 {display}](documents/{fn})\n\n"
+                return f"[📄 {display}]({_rel(fp)})\n\n"
             except Exception:
                 return f"📄 *[документ {orig_fn or ''} — ошибка]*\n\n"
 

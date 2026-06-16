@@ -69,16 +69,51 @@
       </div>
 
       <!-- ── Settings + results ──────────────────────────────── -->
-      <div style="flex:1;min-width:260px;max-width:400px;display:flex;flex-direction:column;gap:16px;">
+      <div style="flex:1;min-width:260px;max-width:420px;display:flex;flex-direction:column;gap:16px;">
 
         <!-- settings card -->
         <div class="settings-card">
           <h3>Настройки экспорта</h3>
 
-          <label>Папка для сохранения</label>
-          <input v-model="settings.exportFolder" type="text" placeholder="exports" />
-          <p class="hint">Для каждого чата создаётся отдельная подпапка</p>
+          <!-- MD folder -->
+          <label>Папка для MD файлов</label>
+          <div class="folder-row">
+            <input v-model="settings.mdFolder" type="text" placeholder="exports" />
+            <button class="btn btn-ghost btn-sm folder-pick-btn" @click="pickFolder('md')" title="Выбрать папку">
+              📁
+            </button>
+          </div>
+          <p class="hint">Сюда сохраняются chat.md (и chat.json / chat.html)</p>
 
+          <!-- Media folder -->
+          <label style="margin-top:10px;">Папка для медиафайлов</label>
+          <div class="folder-row">
+            <input v-model="settings.mediaFolder" type="text" placeholder="exports" />
+            <button class="btn btn-ghost btn-sm folder-pick-btn" @click="pickFolder('media')" title="Выбрать папку">
+              📁
+            </button>
+          </div>
+          <p class="hint">Сюда скачиваются фото, видео, документы и т.д.</p>
+
+          <!-- Formats -->
+          <label style="margin-top:12px;">Форматы экспорта</label>
+          <div class="format-checks">
+            <label class="format-check">
+              <input type="checkbox" checked disabled />
+              <span>Markdown (.md)</span>
+              <span style="color:var(--subtext);font-size:11px;margin-left:4px;">всегда</span>
+            </label>
+            <label class="format-check">
+              <input type="checkbox" v-model="settings.exportJson" />
+              <span>JSON (.json)</span>
+            </label>
+            <label class="format-check">
+              <input type="checkbox" v-model="settings.exportHtml" />
+              <span>HTML (.html)</span>
+            </label>
+          </div>
+
+          <!-- Range -->
           <label style="margin-top:12px;">Диапазон сообщений</label>
           <div class="range-options">
             <label class="range-option">
@@ -118,7 +153,7 @@
           </button>
         </div>
 
-        <!-- results card -->
+        <!-- live results card -->
         <div v-if="exportStatus.results?.length" class="settings-card">
           <h3>Результаты</h3>
           <div v-for="r in exportStatus.results" :key="r.id" class="export-result-row"
@@ -135,10 +170,41 @@
             <div v-if="r.status==='error'" style="font-size:12px;color:var(--danger);margin-top:4px;margin-left:24px;">
               {{ r.error }}
             </div>
-            <div v-if="r.status==='done'" style="margin-top:6px;margin-left:24px;">
+            <div v-if="r.status==='done'" style="margin-top:6px;margin-left:24px;display:flex;gap:6px;">
               <button class="btn btn-ghost btn-sm" style="font-size:11px;" @click="openFolder(r.folder)">
-                📁 Открыть папку
+                📁 MD папка
               </button>
+              <button v-if="r.media_folder && r.media_folder !== r.folder"
+                      class="btn btn-ghost btn-sm" style="font-size:11px;" @click="openFolder(r.media_folder)">
+                🖼 Медиа папка
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- export history card -->
+        <div v-if="exportHistory.length" class="settings-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h3 style="margin:0;">История выгрузок</h3>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--danger);"
+                    @click="clearHistory">Очистить</button>
+          </div>
+          <div v-for="entry in exportHistory" :key="entry.id" class="history-entry">
+            <div class="history-entry-header">
+              <span class="history-date">{{ entry.timestamp }}</span>
+              <div style="display:flex;gap:4px;">
+                <button class="btn btn-ghost btn-sm" style="font-size:11px;"
+                        @click="openFolder(entry.mdFolder)" title="Открыть папку MD">📁</button>
+                <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent);"
+                        :disabled="running" @click="rerunExport(entry)" title="Повторить экспорт">↺</button>
+              </div>
+            </div>
+            <div class="history-chats">
+              <span v-for="(t,i) in entry.chatTitles" :key="i" class="history-chat-badge">{{ t }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--subtext);margin-top:4px;">
+              <span v-if="entry.formats.length">{{ entry.formats.join(' + ') }}</span>
+              · {{ entry.mdFolder }}
             </div>
           </div>
         </div>
@@ -277,12 +343,29 @@ async function loadChats() {
 
 // ── Settings ────────────────────────────────────────────────────────
 const settings = reactive({
-  exportFolder: 'exports',
+  mdFolder:    'exports',
+  mediaFolder: 'exports',
+  exportJson:  false,
+  exportHtml:  false,
   rangeType: 'all',
   dateFrom: '',
   dateTo: '',
   lastN: 10000,
 })
+
+async function pickFolder(target) {
+  const res = await api('/api/utils/pick-folder', { method: 'POST', body: JSON.stringify({}) })
+  if (res.folder) {
+    if (target === 'md')    settings.mdFolder    = res.folder
+    if (target === 'media') settings.mediaFolder = res.folder
+    savePaths()
+  }
+}
+
+function savePaths() {
+  localStorage.setItem('export_md_folder',    settings.mdFolder)
+  localStorage.setItem('export_media_folder', settings.mediaFolder)
+}
 
 // ── Export state ────────────────────────────────────────────────────
 const running       = ref(false)
@@ -303,6 +386,68 @@ const exportStatus  = ref({
 })
 let poller = null
 
+// ── Export history ──────────────────────────────────────────────────
+const HISTORY_KEY = 'export_history_v2'
+const exportHistory = ref([])
+
+function loadHistory() {
+  try {
+    exportHistory.value = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  } catch { exportHistory.value = [] }
+}
+
+function saveHistory() {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(exportHistory.value.slice(0, 50)))
+}
+
+function pushHistory(chats, status) {
+  const formats = ['Markdown']
+  if (settings.exportJson) formats.push('JSON')
+  if (settings.exportHtml) formats.push('HTML')
+  exportHistory.value.unshift({
+    id: Date.now(),
+    timestamp: new Date().toLocaleString('ru'),
+    chatTitles: chats.map(c => c.title),
+    chatConfigs: chats,
+    mdFolder:    settings.mdFolder,
+    mediaFolder: settings.mediaFolder,
+    exportJson:  settings.exportJson,
+    exportHtml:  settings.exportHtml,
+    rangeType:   settings.rangeType,
+    dateFrom:    settings.dateFrom,
+    dateTo:      settings.dateTo,
+    lastN:       settings.lastN,
+    formats,
+    results: status.results || [],
+  })
+  saveHistory()
+}
+
+function clearHistory() {
+  if (!confirm('Очистить историю выгрузок?')) return
+  exportHistory.value = []
+  saveHistory()
+}
+
+async function rerunExport(entry) {
+  if (running.value) return
+  // restore settings from history
+  settings.mdFolder    = entry.mdFolder
+  settings.mediaFolder = entry.mediaFolder
+  settings.exportJson  = entry.exportJson
+  settings.exportHtml  = entry.exportHtml
+  settings.rangeType   = entry.rangeType
+  settings.dateFrom    = entry.dateFrom
+  settings.dateTo      = entry.dateTo
+  settings.lastN       = entry.lastN
+
+  // re-check the same chats in allChats (by id)
+  const ids = new Set(entry.chatConfigs.map(c => c.id))
+  allChats.value.forEach(c => { c.checked = ids.has(c.id) })
+
+  await doStartExport(entry.chatConfigs)
+}
+
 // ── Actions ─────────────────────────────────────────────────────────
 async function startExport() {
   const sel = selectedChats.value
@@ -319,16 +464,27 @@ async function startExport() {
     last_n:     settings.lastN,
   }))
 
+  await doStartExport(chats)
+}
+
+async function doStartExport(chats) {
+  savePaths()
   const res = await api('/api/export/full/start', {
     method: 'POST',
-    body: JSON.stringify({ chats, export_folder: settings.exportFolder }),
+    body: JSON.stringify({
+      chats,
+      md_folder:    settings.mdFolder,
+      media_folder: settings.mediaFolder,
+      export_json:  settings.exportJson,
+      export_html:  settings.exportHtml,
+    }),
   })
 
   if (res.error) { exportError.value = res.error; return }
 
   running.value = true
   openProgressModal()
-  startPoller()
+  startPoller(chats)
 }
 
 function openProgressModal() {
@@ -337,7 +493,7 @@ function openProgressModal() {
   nextTick(() => setTimeout(() => { modalEntered.value = true }, 10))
 }
 
-function startPoller() {
+function startPoller(chats) {
   if (poller) clearInterval(poller)
   poller = setInterval(async () => {
     const s = await api('/api/export/full/status')
@@ -345,6 +501,7 @@ function startPoller() {
     if (s.status === 'done' || s.status === 'error') {
       clearInterval(poller); poller = null
       running.value = false
+      if (s.status === 'done' && chats) pushHistory(chats, s)
     }
   }, 1000)
 }
@@ -358,16 +515,26 @@ function onEsc(e) { if (e.key === 'Escape') showProgress.value = false }
 // ── Mount ───────────────────────────────────────────────────────────
 onMounted(async () => {
   document.addEventListener('keydown', onEsc)
+  loadHistory()
+
+  // restore folder paths from localStorage first
+  const savedMd    = localStorage.getItem('export_md_folder')
+  const savedMedia = localStorage.getItem('export_media_folder')
+
   const [cfg, status] = await Promise.all([api('/api/settings'), api('/api/export/full/status')])
 
-  if (cfg.full_export_folder) settings.exportFolder = cfg.full_export_folder
+  // config takes priority over localStorage for paths
+  if (cfg.full_export_md_folder)    settings.mdFolder    = cfg.full_export_md_folder
+  else if (savedMd)                  settings.mdFolder    = savedMd
+  if (cfg.full_export_media_folder) settings.mediaFolder = cfg.full_export_media_folder
+  else if (savedMedia)               settings.mediaFolder = savedMedia
 
   exportStatus.value = status
 
   if (status.status === 'running') {
     running.value = true
     openProgressModal()
-    startPoller()
+    startPoller(null)
   }
 
   await loadChats()
@@ -403,6 +570,29 @@ onUnmounted(() => {
 .chat-pick-title { font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-pick-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 
+.folder-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.folder-row input { flex: 1; }
+.folder-pick-btn { flex-shrink: 0; padding: 6px 10px; font-size: 16px; }
+
+.format-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.format-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.format-check input[disabled] { cursor: default; opacity: .5; }
+
 .range-options { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .range-option { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
 .range-date-row { display: flex; align-items: center; gap: 6px; margin-left: 20px; }
@@ -412,4 +602,31 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
 }
 .export-result-row:last-child { border-bottom: none; }
+
+/* History */
+.history-entry {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.history-entry:last-child { border-bottom: none; }
+.history-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+}
+.history-date { font-size: 12px; color: var(--subtext); }
+.history-chats { display: flex; flex-wrap: wrap; gap: 4px; }
+.history-chat-badge {
+  font-size: 11px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--text);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

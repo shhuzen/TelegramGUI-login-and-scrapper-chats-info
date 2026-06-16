@@ -73,6 +73,8 @@ DEFAULT_CONFIG = {
     "pin_hash": "",
     "pin_enabled": False,
     "full_export_folder": "exports",
+    "full_export_md_folder": "exports",
+    "full_export_media_folder": "exports",
 }
 
 
@@ -601,6 +603,21 @@ def blocked_unsub_status():
 # ------------------------------------------------------------------ #
 
 
+@app.route("/api/utils/pick-folder", methods=["POST"])
+def pick_folder():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(title="Выберите папку")
+        root.destroy()
+        return jsonify({"folder": folder or None})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/export/full/start", methods=["POST"])
 def full_export_start():
     if not tg.is_logged_in():
@@ -609,11 +626,15 @@ def full_export_start():
     chat_configs = data.get("chats", [])
     if not chat_configs:
         return jsonify({"error": "Выберите хотя бы один чат"}), 400
-    export_folder = (data.get("export_folder") or "").strip() or "exports"
+    md_folder    = (data.get("md_folder")    or "").strip() or "exports"
+    media_folder = (data.get("media_folder") or "").strip() or md_folder
+    export_json  = bool(data.get("export_json",  False))
+    export_html  = bool(data.get("export_html",  False))
     cfg = load_config()
-    cfg["full_export_folder"] = export_folder
+    cfg["full_export_md_folder"]    = md_folder
+    cfg["full_export_media_folder"] = media_folder
     save_config(cfg)
-    return jsonify(tg.start_full_export(chat_configs, export_folder))
+    return jsonify(tg.start_full_export(chat_configs, md_folder, media_folder, export_json, export_html))
 
 
 @app.route("/api/export/full/status")
