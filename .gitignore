@@ -179,5 +179,6 @@ pyaes-*.tar.gz
 node_modules/
 TelegramManager.exe
 templates/
+.claude/
 
 secret_key.bin
