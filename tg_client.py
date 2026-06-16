@@ -494,6 +494,343 @@ class TelegramClientManager:
             {"status": "not_started", "progress": 0, "total": 0, "file": None, "error": None},
         )
 
+    def get_full_export_status(self) -> dict:
+        return self._full_export_status
+
+    def start_full_export(self, chat_configs: list, export_folder: str) -> dict:
+        if self._full_export_status.get("status") == "running":
+            return {"success": False, "error": "Экспорт уже запущен"}
+        self._full_export_status = {
+            "status": "running",
+            "current_chat_title": "",
+            "current_chat_id": 0,
+            "current_msg": 0,
+            "current_total": 0,
+            "current_media": 0,
+            "chats_done": 0,
+            "chats_total": len(chat_configs),
+            "results": [],
+            "error": "",
+        }
+        asyncio.run_coroutine_threadsafe(
+            self._full_export_async(chat_configs, export_folder),
+            self.loop,
+        )
+        return {"success": True}
+
+    async def _full_export_async(self, chat_configs: list, export_folder: str):
+        from datetime import datetime, timezone
+        from telethon.tl.types import (
+            MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage,
+            MessageMediaGeo, MessageMediaPoll, MessageMediaContact,
+            DocumentAttributeVideo, DocumentAttributeAudio,
+            DocumentAttributeSticker, DocumentAttributeAnimated,
+            DocumentAttributeFilename,
+        )
+
+        for cfg in chat_configs:
+            chat_id = int(cfg["id"])
+            title = cfg.get("title", str(chat_id))
+
+            self._full_export_status.update({
+                "current_chat_title": title,
+                "current_chat_id": chat_id,
+                "current_msg": 0,
+                "current_total": 0,
+                "current_media": 0,
+            })
+
+            safe_title = re.sub(r"[^\w\s\-]", "", title).strip()[:60] or str(chat_id)
+            chat_folder = os.path.join(export_folder, safe_title)
+
+            result = {
+                "id": chat_id,
+                "title": title,
+                "status": "running",
+                "messages": 0,
+                "media_files": 0,
+                "folder": chat_folder,
+                "error": "",
+            }
+            self._full_export_status["results"].append(result)
+
+            try:
+                # create media subdirectories
+                media_dirs: dict[str, str] = {}
+                for d in ("photos", "videos", "voice", "audio", "stickers", "gif", "documents", "other"):
+                    p = os.path.join(chat_folder, d)
+                    os.makedirs(p, exist_ok=True)
+                    media_dirs[d] = p
+
+                entity = await self.client.get_entity(chat_id)
+                username = getattr(entity, "username", None)
+                link = f"https://t.me/{username}" if username else None
+
+                count_r = await self.client.get_messages(entity, limit=0)
+                total_msgs = count_r.total
+                self._full_export_status["current_total"] = total_msgs
+
+                # range parameters
+                range_type = cfg.get("range_type", "all")
+                date_from_dt = None
+                date_to_dt = None
+                last_n = None
+
+                if range_type == "last_n":
+                    last_n = max(1, int(cfg.get("last_n", 1000)))
+                elif range_type == "date_range":
+                    for key, var_name in (("date_from", "date_from_dt"), ("date_to", "date_to_dt")):
+                        val = cfg.get(key, "")
+                        if val:
+                            try:
+                                dt = datetime.fromisoformat(val[:10])
+                                if var_name == "date_from_dt":
+                                    date_from_dt = dt.replace(tzinfo=timezone.utc)
+                                else:
+                                    date_to_dt = dt.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+                            except Exception:
+                                pass
+
+                md_path = os.path.join(chat_folder, "chat.md")
+                msg_cache: dict = {}
+                count = 0
+                media_count = 0
+
+                with open(md_path, "w", encoding="utf-8") as f:
+                    # ── Header ──────────────────────────────────────
+                    f.write(f"# {title}\n\n")
+                    if link:
+                        f.write(f"**Ссылка:** {link}\n\n")
+                    f.write(f"**ID чата:** `{chat_id}`\n\n")
+                    export_start = cfg.get("date_from", "") or ""
+                    export_end   = cfg.get("date_to",   "") or datetime.now().strftime("%Y-%m-%d")
+                    if range_type == "all":
+                        export_start = "начало"
+                        export_end   = datetime.now().strftime("%Y-%m-%d")
+                    f.write(f"**Дата начала экспорта:** {export_start}\n\n")
+                    f.write(f"**Дата окончания экспорта:** {export_end}\n\n")
+                    f.write(f"**Сообщений в чате:** {total_msgs}\n\n")
+                    f.write("---\n\n")
+
+                    # ── Message iterator ─────────────────────────────
+                    async def _iter():
+                        if last_n:
+                            msgs = []
+                            async for m in self.client.iter_messages(entity, limit=last_n):
+                                msgs.append(m)
+                            for m in reversed(msgs):
+                                yield m
+                        else:
+                            async for m in self.client.iter_messages(entity, limit=None, reverse=True):
+                                yield m
+
+                    async for msg in _iter():
+                        # date range filter
+                        if msg.date:
+                            mdt = msg.date if msg.date.tzinfo else msg.date.replace(tzinfo=timezone.utc)
+                            if date_from_dt and mdt < date_from_dt:
+                                continue
+                            if date_to_dt and mdt > date_to_dt:
+                                continue
+
+                        count += 1
+                        self._full_export_status["current_msg"] = count
+
+                        # sender name
+                        sender_name = "Неизвестно"
+                        if msg.sender:
+                            if isinstance(msg.sender, User):
+                                parts = [msg.sender.first_name or "", msg.sender.last_name or ""]
+                                sender_name = " ".join(p for p in parts if p) or "Пользователь"
+                            else:
+                                sender_name = getattr(msg.sender, "title", "Канал")
+
+                        date_str = msg.date.strftime("%Y-%m-%d %H:%M:%S") if msg.date else ""
+
+                        f.write(f"## {sender_name}\n\n")
+                        f.write(f"Дата: {date_str}\n\n")
+
+                        # forwarded
+                        if msg.fwd_from:
+                            fwd_name = getattr(msg.fwd_from, "from_name", None) or ""
+                            if not fwd_name and msg.forward and msg.forward.sender:
+                                s = msg.forward.sender
+                                if isinstance(s, User):
+                                    parts = [s.first_name or "", s.last_name or ""]
+                                    fwd_name = " ".join(p for p in parts if p)
+                                else:
+                                    fwd_name = getattr(s, "title", "")
+                            if fwd_name:
+                                f.write(f"> Переслано от: {fwd_name}\n\n")
+
+                        # reply
+                        if msg.reply_to and hasattr(msg.reply_to, "reply_to_msg_id"):
+                            reply_id = msg.reply_to.reply_to_msg_id
+                            cached = msg_cache.get(reply_id)
+                            if cached:
+                                snippet = cached["text"][:150].replace("\n", " ")
+                                ellipsis = "…" if len(cached["text"]) > 150 else ""
+                                f.write(f"> Ответ на сообщение:\n> {snippet}{ellipsis}\n\n")
+                            else:
+                                f.write("> Ответ на сообщение\n\n")
+
+                        # text
+                        text = msg.text or ""
+                        if text:
+                            f.write(f"{text}\n\n")
+
+                        # media
+                        if msg.media:
+                            md_line = await self._export_media_line(msg, media_dirs, msg.id)
+                            if md_line:
+                                f.write(md_line)
+                                media_count += 1
+                                self._full_export_status["current_media"] = media_count
+
+                        f.write("---\n\n")
+
+                        # update reply cache
+                        msg_cache[msg.id] = {
+                            "sender": sender_name,
+                            "text": text or ("[медиа]" if msg.media else ""),
+                        }
+                        if len(msg_cache) > 5000:
+                            msg_cache.pop(next(iter(msg_cache)))
+
+                result.update({"status": "done", "messages": count, "media_files": media_count})
+
+            except Exception as e:
+                result.update({"status": "error", "error": str(e)})
+
+            self._full_export_status["chats_done"] += 1
+
+        self._full_export_status["status"] = "done"
+        import notifications
+        done  = sum(1 for r in self._full_export_status["results"] if r["status"] == "done")
+        errs  = sum(1 for r in self._full_export_status["results"] if r["status"] == "error")
+        notifications.notify("Экспорт завершён", f"Готово: {done}  •  Ошибок: {errs}")
+
+    async def _export_media_line(self, msg, media_dirs: dict, msg_id: int) -> str:
+        """Download media from msg and return the Markdown/HTML line to embed it."""
+        from telethon.tl.types import (
+            MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage,
+            MessageMediaGeo, MessageMediaPoll, MessageMediaContact,
+            DocumentAttributeVideo, DocumentAttributeAudio,
+            DocumentAttributeSticker, DocumentAttributeAnimated,
+            DocumentAttributeFilename,
+        )
+
+        media = msg.media
+
+        if isinstance(media, MessageMediaWebPage):
+            web = getattr(media, "webpage", None)
+            url = getattr(web, "url", None) if web else None
+            return (f"🔗 {url}\n\n" if url else "")
+
+        if isinstance(media, MessageMediaGeo):
+            geo = getattr(media, "geo", None)
+            return (f"📍 Геопозиция: {geo.lat}, {geo.long}\n\n" if geo else "")
+
+        if isinstance(media, MessageMediaContact):
+            name = f"{getattr(media,'first_name','')} {getattr(media,'last_name','')}".strip()
+            phone = getattr(media, "phone_number", "")
+            return f"👤 Контакт: **{name}**{' · ' + phone if phone else ''}\n\n"
+
+        if isinstance(media, MessageMediaPoll):
+            poll = getattr(media, "poll", None)
+            if poll:
+                q = getattr(poll.question, "text", None) or str(poll.question)
+                return f"📊 Опрос: **{q}**\n\n"
+            return ""
+
+        if isinstance(media, MessageMediaPhoto):
+            filename = f"{msg_id:08d}.jpg"
+            full_path = os.path.join(media_dirs["photos"], filename)
+            try:
+                await self.client.download_media(msg, file=full_path)
+                return f"![Фото](photos/{filename})\n\n"
+            except Exception:
+                return "📷 *[фото — ошибка загрузки]*\n\n"
+
+        if isinstance(media, MessageMediaDocument):
+            doc = media.document
+            if not doc:
+                return ""
+            attrs = doc.attributes or []
+            mime  = (doc.mime_type or "").lower()
+
+            is_sticker  = any(isinstance(a, DocumentAttributeSticker)  for a in attrs)
+            is_animated = any(isinstance(a, DocumentAttributeAnimated) for a in attrs)
+            is_video    = any(isinstance(a, DocumentAttributeVideo)    for a in attrs)
+            is_round    = any(isinstance(a, DocumentAttributeVideo) and getattr(a, "round_message", False) for a in attrs)
+            is_audio    = any(isinstance(a, DocumentAttributeAudio)    for a in attrs)
+            is_voice    = any(isinstance(a, DocumentAttributeAudio) and getattr(a, "voice", False) for a in attrs)
+            orig_fn     = next((a.file_name for a in attrs if isinstance(a, DocumentAttributeFilename)), None)
+
+            if is_sticker:
+                ext = ".webp" if "webp" in mime else (".tgs" if "tgs" in mime else ".webp")
+                fn = f"{msg_id:08d}{ext}"
+                fp = os.path.join(media_dirs["stickers"], fn)
+                try:
+                    await self.client.download_media(msg, file=fp)
+                    return f"![Стикер](stickers/{fn})\n\n"
+                except Exception:
+                    return "🎭 *[стикер — ошибка]*\n\n"
+
+            if is_animated or "gif" in mime:
+                fn = f"{msg_id:08d}.gif" if "gif" in mime else f"{msg_id:08d}.mp4"
+                fp = os.path.join(media_dirs["gif"], fn)
+                try:
+                    await self.client.download_media(msg, file=fp)
+                    return f"![GIF](gif/{fn})\n\n"
+                except Exception:
+                    return "🎞 *[GIF — ошибка]*\n\n"
+
+            if is_video or is_round:
+                fn = f"{msg_id:08d}.mp4"
+                fp = os.path.join(media_dirs["videos"], fn)
+                try:
+                    await self.client.download_media(msg, file=fp)
+                    return f'<video controls width="800">\n  <source src="videos/{fn}">\n</video>\n\n'
+                except Exception:
+                    return "🎥 *[видео — ошибка]*\n\n"
+
+            if is_voice:
+                fn = f"{msg_id:08d}.ogg"
+                fp = os.path.join(media_dirs["voice"], fn)
+                try:
+                    await self.client.download_media(msg, file=fp)
+                    return f'<audio controls>\n  <source src="voice/{fn}">\n</audio>\n\n'
+                except Exception:
+                    return "🎙 *[голосовое — ошибка]*\n\n"
+
+            if is_audio:
+                _, ext = os.path.splitext(orig_fn or ".mp3")
+                fn = f"{msg_id:08d}{ext or '.mp3'}"
+                fp = os.path.join(media_dirs["audio"], fn)
+                try:
+                    await self.client.download_media(msg, file=fp)
+                    return f'<audio controls>\n  <source src="audio/{fn}">\n</audio>\n\n'
+                except Exception:
+                    return "🎵 *[аудио — ошибка]*\n\n"
+
+            # generic document
+            if orig_fn:
+                safe_fn = re.sub(r"[^\w\s._\-]", "", orig_fn).strip()[:80] or "file"
+                fn = f"{msg_id:08d}_{safe_fn}"
+            else:
+                ext = ("." + mime.split("/")[-1]) if "/" in mime else ".bin"
+                fn  = f"{msg_id:08d}{ext}"
+            fp = os.path.join(media_dirs["documents"], fn)
+            try:
+                await self.client.download_media(msg, file=fp)
+                display = orig_fn or fn
+                return f"[📄 {display}](documents/{fn})\n\n"
+            except Exception:
+                return f"📄 *[документ {orig_fn or ''} — ошибка]*\n\n"
+
+        return ""
+
     # ------------------------------------------------------------------ #
     #  Subscribe from MD file
     # ------------------------------------------------------------------ #
@@ -692,6 +1029,19 @@ class TelegramClientManager:
     # ------------------------------------------------------------------ #
 
     _unsub_status: dict = {"status": "idle", "done": 0, "total": 0, "results": [], "entries": []}
+
+    _full_export_status: dict = {
+        "status": "idle",
+        "current_chat_title": "",
+        "current_chat_id": 0,
+        "current_msg": 0,
+        "current_total": 0,
+        "current_media": 0,
+        "chats_done": 0,
+        "chats_total": 0,
+        "results": [],
+        "error": "",
+    }
 
     def get_blocked_chats(self) -> dict:
         async def _scan():

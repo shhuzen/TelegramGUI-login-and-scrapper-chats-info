@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
     "auto_backup_enabled": True,
     "pin_hash": "",
     "pin_enabled": False,
+    "full_export_folder": "exports",
 }
 
 
@@ -593,6 +594,54 @@ def blocked_unsub_start():
 @app.route("/api/blocked/unsubscribe/status")
 def blocked_unsub_status():
     return jsonify(tg.get_unsubscribe_status())
+
+
+# ------------------------------------------------------------------ #
+#  Full chat history export
+# ------------------------------------------------------------------ #
+
+
+@app.route("/api/export/full/start", methods=["POST"])
+def full_export_start():
+    if not tg.is_logged_in():
+        return jsonify({"error": "Не авторизован"}), 401
+    data = request.json or {}
+    chat_configs = data.get("chats", [])
+    if not chat_configs:
+        return jsonify({"error": "Выберите хотя бы один чат"}), 400
+    export_folder = (data.get("export_folder") or "").strip() or "exports"
+    cfg = load_config()
+    cfg["full_export_folder"] = export_folder
+    save_config(cfg)
+    return jsonify(tg.start_full_export(chat_configs, export_folder))
+
+
+@app.route("/api/export/full/status")
+def full_export_status_route():
+    return jsonify(tg.get_full_export_status())
+
+
+@app.route("/api/export/full/open", methods=["POST"])
+def full_export_open_folder():
+    data = request.json or {}
+    folder = (data.get("folder") or "").strip()
+    if not folder:
+        return jsonify({"success": False, "error": "Папка не указана"}), 400
+    abs_folder = os.path.abspath(folder)
+    if not os.path.exists(abs_folder):
+        return jsonify({"success": False, "error": "Папка не найдена"}), 404
+    try:
+        import subprocess, platform
+        sys_name = platform.system()
+        if sys_name == "Windows":
+            subprocess.Popen(["explorer", abs_folder])
+        elif sys_name == "Darwin":
+            subprocess.Popen(["open", abs_folder])
+        else:
+            subprocess.Popen(["xdg-open", abs_folder])
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 # ------------------------------------------------------------------ #

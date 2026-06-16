@@ -81,7 +81,7 @@
                   <div class="progress-bar-wrap" style="height:5px;"><div class="progress-bar" :style="{ width: exports[c.id].total ? (exports[c.id].progress / exports[c.id].total * 100) + '%' : '0%' }"></div></div>
                 </div>
                 <div v-else-if="exports[c.id].status === 'done'" style="display:flex;gap:6px;">
-                  <a :href="'/api/export/' + c.id + '/download'" class="btn btn-sm btn-success" style="font-size:12px;padding:5px 10px;">⬇ Скачать</a>
+                  <button class="btn btn-sm btn-success" style="font-size:12px;padding:5px 10px;" @click="downloadExport(c.id)">⬇ Скачать</button>
                   <button class="btn btn-sm" style="font-size:12px;padding:5px 8px;background:var(--card);color:var(--text);" @click="resetExport(c.id)">↺</button>
                 </div>
                 <span v-else-if="exports[c.id].status === 'error'" style="color:var(--danger);font-size:12px;">{{ exports[c.id].error || 'Ошибка' }}</span>
@@ -185,6 +185,22 @@ async function saveBackup() {
   if (res.success) { alertType.value = 'success'; alertMsg.value = `✓ Сохранено ${res.count} чатов → ${res.file}` }
   else { alertType.value = 'error'; alertMsg.value = res.error || 'Ошибка' }
   setTimeout(() => alertMsg.value = '', 5000)
+}
+
+async function downloadExport(chatId) {
+  const token = sessionStorage.getItem('tab_token')
+  const headers = token ? { 'X-Tab-Token': token } : {}
+  const res = await fetch(`/api/export/${chatId}/download`, { headers })
+  if (!res.ok) return
+  const cd = res.headers.get('Content-Disposition') || ''
+  const match = cd.match(/filename="?([^";]+)"?/)
+  const filename = match ? match[1] : `export_${chatId}.md`
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click()
+  document.body.removeChild(a); URL.revokeObjectURL(url)
 }
 
 onMounted(() => { loadChats(); document.addEventListener('keydown', onKeydown) })

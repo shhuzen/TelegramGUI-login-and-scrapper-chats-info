@@ -12,6 +12,7 @@
       <SubscribeTab v-else-if="store.activeTab === 'subscribe'" />
       <BlockedTab v-else-if="store.activeTab === 'blocked'" />
       <BackupTab v-else-if="store.activeTab === 'backup'" />
+      <ExportTab v-else-if="store.activeTab === 'export'" />
       <SettingsTab v-else-if="store.activeTab === 'settings'" />
     </div>
   </div>
@@ -27,6 +28,7 @@ import SubscribeTab from './SubscribeTab.vue'
 import BlockedTab from './BlockedTab.vue'
 import BackupTab from './BackupTab.vue'
 import SettingsTab from './SettingsTab.vue'
+import ExportTab from './ExportTab.vue'
 
 const tabs = [
   { id: 'dashboard', label: 'Главная' },
@@ -34,6 +36,7 @@ const tabs = [
   { id: 'subscribe', label: 'Подписки' },
   { id: 'blocked', label: 'Заблокированные' },
   { id: 'backup', label: 'Резервная копия' },
+  { id: 'export', label: 'История чатов' },
   { id: 'settings', label: 'Настройки' },
 ]
 
