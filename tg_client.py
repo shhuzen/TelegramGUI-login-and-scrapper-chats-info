@@ -846,6 +846,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
         media = msg.media
 
+        async def _download(file_path: str):
+            """Download to file_path unless it's already there (re-export friendly)."""
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                return
+            await self.client.download_media(msg, file=file_path)
+
         if isinstance(media, MessageMediaWebPage):
             web = getattr(media, "webpage", None)
             url = getattr(web, "url", None) if web else None
@@ -871,7 +877,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
             filename = f"{msg_id:08d}.jpg"
             full_path = os.path.join(media_dirs["photos"], filename)
             try:
-                await self.client.download_media(msg, file=full_path)
+                await _download(full_path)
                 return f"![[{filename}]]\n\n", full_path
             except Exception:
                 return "📷 *[фото — ошибка загрузки]*\n\n", None
@@ -896,7 +902,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fn = f"{msg_id:08d}{ext}"
                 fp = os.path.join(media_dirs["stickers"], fn)
                 try:
-                    await self.client.download_media(msg, file=fp)
+                    await _download(fp)
                     return f"![[{fn}]]\n\n", fp
                 except Exception:
                     return "🎭 *[стикер — ошибка]*\n\n", None
@@ -905,7 +911,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fn = f"{msg_id:08d}.gif" if "gif" in mime else f"{msg_id:08d}.mp4"
                 fp = os.path.join(media_dirs["gif"], fn)
                 try:
-                    await self.client.download_media(msg, file=fp)
+                    await _download(fp)
                     return f"![[{fn}]]\n\n", fp
                 except Exception:
                     return "🎞 *[GIF — ошибка]*\n\n", None
@@ -914,7 +920,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fn = f"{msg_id:08d}.mp4"
                 fp = os.path.join(media_dirs["videos"], fn)
                 try:
-                    await self.client.download_media(msg, file=fp)
+                    await _download(fp)
                     return f"![[{fn}]]\n\n", fp
                 except Exception:
                     return "🎥 *[видео — ошибка]*\n\n", None
@@ -923,7 +929,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fn = f"{msg_id:08d}.ogg"
                 fp = os.path.join(media_dirs["voice"], fn)
                 try:
-                    await self.client.download_media(msg, file=fp)
+                    await _download(fp)
                     return f"![[{fn}]]\n\n", fp
                 except Exception:
                     return "🎙 *[голосовое — ошибка]*\n\n", None
@@ -933,7 +939,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fn = f"{msg_id:08d}{ext or '.mp3'}"
                 fp = os.path.join(media_dirs["audio"], fn)
                 try:
-                    await self.client.download_media(msg, file=fp)
+                    await _download(fp)
                     return f"![[{fn}]]\n\n", fp
                 except Exception:
                     return "🎵 *[аудио — ошибка]*\n\n", None
@@ -948,7 +954,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fn  = f"{msg_id:08d}{ext}"
             fp = os.path.join(media_dirs["documents"], fn)
             try:
-                await self.client.download_media(msg, file=fp)
+                await _download(fp)
                 display = orig_fn or fn
                 return f"[[{fn}|📄 {display}]]\n\n", fp
             except Exception:
