@@ -83,7 +83,7 @@
               📁
             </button>
           </div>
-          <p class="hint">Сюда сохраняются chat.md (и chat.json / chat.html)</p>
+          <p class="hint">Если включены только MD — файл сохраняется прямо сюда. Если включён JSON/HTML — создаётся подпапка с названием чата.</p>
 
           <!-- Media folder -->
           <label style="margin-top:10px;">Папка для медиафайлов</label>

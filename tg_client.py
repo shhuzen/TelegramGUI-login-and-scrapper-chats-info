@@ -545,9 +545,13 @@ class TelegramClientManager:
 
             # Preserve Unicode (Cyrillic etc.), strip only filesystem-unsafe chars
             safe_title = re.sub(r'[/\\:*?"<>|\x00]', '', title).strip().strip('.')[:80] or str(chat_id)
-            # MD files go into md_folder/safe_title/
-            chat_md_dir   = os.path.join(os.path.abspath(md_folder),    safe_title)
-            # Media files go into media_folder/safe_title/
+            # If only Markdown is requested, save chat.md directly into md_folder
+            # (no per-chat subfolder). A subfolder is only needed to hold extra
+            # files (chat.json / chat.html) alongside the .md.
+            needs_subfolder = export_json or export_html
+            md_root = os.path.abspath(md_folder)
+            chat_md_dir = os.path.join(md_root, safe_title) if needs_subfolder else md_root
+            # Media files always go into media_folder/safe_title/
             chat_media_dir = os.path.join(os.path.abspath(media_folder), safe_title)
 
             result = {
@@ -683,16 +687,12 @@ class TelegramClientManager:
                         text = msg.text or ""
 
                         media_line = ""
-                        media_rel  = ""
+                        media_abs_path = None
                         if msg.media:
-                            media_line = await self._export_media_line(msg, media_dirs, msg.id, chat_md_dir)
+                            media_line, media_abs_path = await self._export_media_line(msg, media_dirs, msg.id)
                             if media_line:
                                 media_count += 1
                                 self._full_export_status["current_media"] = media_count
-                                # extract relative path for JSON (first Markdown link)
-                                import re as _re
-                                m2 = _re.search(r'\]\(([^)]+)\)', media_line) or _re.search(r'src="([^"]+)"', media_line)
-                                media_rel = m2.group(1) if m2 else ""
 
                         # ── write MD ─────────────────────────────────
                         f.write(f"## {sender_name}\n\n")
@@ -718,7 +718,8 @@ class TelegramClientManager:
                                 "forwarded_from": fwd_name or None,
                                 "reply_to_snippet": reply_snippet or None,
                                 "text": text,
-                                "media": media_rel or None,
+                                "media": os.path.basename(media_abs_path) if media_abs_path else None,
+                                "media_abs": media_abs_path,
                             })
 
                         # update reply cache
@@ -732,6 +733,7 @@ class TelegramClientManager:
                 # ── JSON export ───────────────────────────────────────
                 if export_json:
                     json_path = os.path.join(chat_md_dir, f"{safe_title}.json")
+                    json_messages = [{k: v for k, v in m.items() if k != "media_abs"} for m in messages_data]
                     with open(json_path, "w", encoding="utf-8") as jf:
                         _json.dump({
                             "id": chat_id,
@@ -739,7 +741,7 @@ class TelegramClientManager:
                             "link": link,
                             "total": total_msgs,
                             "exported": count,
-                            "messages": messages_data,
+                            "messages": json_messages,
                         }, jf, ensure_ascii=False, indent=2)
 
                 # ── HTML export ───────────────────────────────────────
@@ -783,14 +785,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 """
         def esc(s): return _html.escape(s or "")
 
+        html_dir = os.path.dirname(html_path)
+
         rows = []
         for m in messages_data:
             fwd = f'<div class="fwd">Переслано от: {esc(m["forwarded_from"])}</div>' if m.get("forwarded_from") else ""
             reply = f'<div class="reply">↩ {esc(m["reply_to_snippet"])}</div>' if m.get("reply_to_snippet") else ""
             text  = f'<div class="text">{esc(m["text"])}</div>' if m.get("text") else ""
             media = ""
-            if m.get("media"):
-                mp = esc(m["media"])
+            if m.get("media_abs"):
+                mp = esc(os.path.relpath(m["media_abs"], html_dir).replace("\\", "/"))
                 if mp.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
                     media = f'<div class="media"><img src="{mp}" loading="lazy" /></div>'
                 elif mp.endswith((".mp4", ".webm")):
@@ -824,8 +828,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         with open(html_path, "w", encoding="utf-8") as hf:
             hf.write(html_content)
 
-    async def _export_media_line(self, msg, media_dirs: dict, msg_id: int, md_dir: str) -> str:
-        """Download media from msg and return the Markdown line to embed it."""
+    async def _export_media_line(self, msg, media_dirs: dict, msg_id: int):
+        """Download media from msg and return (markdown_line, absolute_file_path).
+
+        Uses Obsidian's wiki-link embed syntax `![[filename]]` for media so the
+        note resolves the file by name anywhere in the vault — this keeps links
+        working even when the .md file and the media folder live in different
+        directories (since a plain relative-path markdown link would break).
+        """
         from telethon.tl.types import (
             MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage,
             MessageMediaGeo, MessageMediaPoll, MessageMediaContact,
@@ -834,45 +844,42 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
             DocumentAttributeFilename,
         )
 
-        def _rel(abs_path: str) -> str:
-            return os.path.relpath(abs_path, md_dir).replace("\\", "/")
-
         media = msg.media
 
         if isinstance(media, MessageMediaWebPage):
             web = getattr(media, "webpage", None)
             url = getattr(web, "url", None) if web else None
-            return (f"🔗 {url}\n\n" if url else "")
+            return (f"🔗 {url}\n\n" if url else ""), None
 
         if isinstance(media, MessageMediaGeo):
             geo = getattr(media, "geo", None)
-            return (f"📍 Геопозиция: {geo.lat}, {geo.long}\n\n" if geo else "")
+            return (f"📍 Геопозиция: {geo.lat}, {geo.long}\n\n" if geo else ""), None
 
         if isinstance(media, MessageMediaContact):
             name = f"{getattr(media,'first_name','')} {getattr(media,'last_name','')}".strip()
             phone = getattr(media, "phone_number", "")
-            return f"👤 Контакт: **{name}**{' · ' + phone if phone else ''}\n\n"
+            return f"👤 Контакт: **{name}**{' · ' + phone if phone else ''}\n\n", None
 
         if isinstance(media, MessageMediaPoll):
             poll = getattr(media, "poll", None)
             if poll:
                 q = getattr(poll.question, "text", None) or str(poll.question)
-                return f"📊 Опрос: **{q}**\n\n"
-            return ""
+                return f"📊 Опрос: **{q}**\n\n", None
+            return "", None
 
         if isinstance(media, MessageMediaPhoto):
             filename = f"{msg_id:08d}.jpg"
             full_path = os.path.join(media_dirs["photos"], filename)
             try:
                 await self.client.download_media(msg, file=full_path)
-                return f"![Фото]({_rel(full_path)})\n\n"
+                return f"![[{filename}]]\n\n", full_path
             except Exception:
-                return "📷 *[фото — ошибка загрузки]*\n\n"
+                return "📷 *[фото — ошибка загрузки]*\n\n", None
 
         if isinstance(media, MessageMediaDocument):
             doc = media.document
             if not doc:
-                return ""
+                return "", None
             attrs = doc.attributes or []
             mime  = (doc.mime_type or "").lower()
 
@@ -890,36 +897,36 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fp = os.path.join(media_dirs["stickers"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f"![Стикер]({_rel(fp)})\n\n"
+                    return f"![[{fn}]]\n\n", fp
                 except Exception:
-                    return "🎭 *[стикер — ошибка]*\n\n"
+                    return "🎭 *[стикер — ошибка]*\n\n", None
 
             if is_animated or "gif" in mime:
                 fn = f"{msg_id:08d}.gif" if "gif" in mime else f"{msg_id:08d}.mp4"
                 fp = os.path.join(media_dirs["gif"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f"![GIF]({_rel(fp)})\n\n"
+                    return f"![[{fn}]]\n\n", fp
                 except Exception:
-                    return "🎞 *[GIF — ошибка]*\n\n"
+                    return "🎞 *[GIF — ошибка]*\n\n", None
 
             if is_video or is_round:
                 fn = f"{msg_id:08d}.mp4"
                 fp = os.path.join(media_dirs["videos"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f'<video controls width="800">\n  <source src="{_rel(fp)}">\n</video>\n\n'
+                    return f"![[{fn}]]\n\n", fp
                 except Exception:
-                    return "🎥 *[видео — ошибка]*\n\n"
+                    return "🎥 *[видео — ошибка]*\n\n", None
 
             if is_voice:
                 fn = f"{msg_id:08d}.ogg"
                 fp = os.path.join(media_dirs["voice"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f'<audio controls>\n  <source src="{_rel(fp)}">\n</audio>\n\n'
+                    return f"![[{fn}]]\n\n", fp
                 except Exception:
-                    return "🎙 *[голосовое — ошибка]*\n\n"
+                    return "🎙 *[голосовое — ошибка]*\n\n", None
 
             if is_audio:
                 _, ext = os.path.splitext(orig_fn or ".mp3")
@@ -927,11 +934,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
                 fp = os.path.join(media_dirs["audio"], fn)
                 try:
                     await self.client.download_media(msg, file=fp)
-                    return f'<audio controls>\n  <source src="{_rel(fp)}">\n</audio>\n\n'
+                    return f"![[{fn}]]\n\n", fp
                 except Exception:
-                    return "🎵 *[аудио — ошибка]*\n\n"
+                    return "🎵 *[аудио — ошибка]*\n\n", None
 
-            # generic document
+            # generic document — use an aliased wiki-link (resolved by filename,
+            # not embedded, since arbitrary doc types can't be previewed inline)
             if orig_fn:
                 safe_fn = re.sub(r"[^\w\s._\-]", "", orig_fn).strip()[:80] or "file"
                 fn = f"{msg_id:08d}_{safe_fn}"
@@ -942,11 +950,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
             try:
                 await self.client.download_media(msg, file=fp)
                 display = orig_fn or fn
-                return f"[📄 {display}]({_rel(fp)})\n\n"
+                return f"[[{fn}|📄 {display}]]\n\n", fp
             except Exception:
-                return f"📄 *[документ {orig_fn or ''} — ошибка]*\n\n"
+                return f"📄 *[документ {orig_fn or ''} — ошибка]*\n\n", None
 
-        return ""
+        return "", None
 
     # ------------------------------------------------------------------ #
     #  Subscribe from MD file
